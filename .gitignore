@@ -1,6 +1,6 @@
 /datasets
 # /data
-/output
+# /output
 *.pdf
 .venv
 # *.csv
