@@ -79,13 +79,18 @@ class DataStreamProcessor:
         match str(method).lower():
             case 'media':
                 self._log("Tratamento de Nulos: Preenchendo com a MÉDIA das colunas...")
-                return X.fillna(X.mean())
+                return X.apply(lambda column: column.fillna(column.mean()))
             case 'mediana':
                 self._log("Tratamento de Nulos: Preenchendo com a MEDIANA das colunas...")
-                return X.fillna(X.median())
+                return X.apply(lambda column: column.fillna(column.median()))
             case 'moda':
                 self._log("Tratamento de Nulos: Preenchendo com a MODA das colunas...")
-                return X.fillna(X.mode().iloc[0])
+                def fill_mode(column):
+                    modes = column.mode(dropna=True)
+                    fill_value = modes.iloc[0] if not modes.empty else 0
+                    return column.fillna(fill_value)
+
+                return X.apply(fill_mode)
             case '0':
                 self._log("Tratamento de Nulos: Preenchendo com ZERO.")
                 return X.fillna(0)
@@ -155,7 +160,7 @@ class DataStreamProcessor:
         # tratamento numérico
         self._log("Pré-processamento: Convertendo infinitos...")
         X = X.select_dtypes(include=[np.number])
-        X.replace([np.inf, -np.inf], [np.finfo(np.float32).max, np.finfo(np.float32).min], inplace=True)
+        X = X.replace([np.inf, -np.inf], [np.finfo(np.float32).max, np.finfo(np.float32).min])
         X = self._handle_missing_values(X, method=imputation_method)
 
         # normalização 

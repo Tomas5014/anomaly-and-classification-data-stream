@@ -116,6 +116,21 @@ Ao final da execução, o framework gera de forma automática:
 - Relatório Comportamental por Ataque
 - Gráficos de Linha Prequenciais: Evolução temporal das métricas do modelo e limiares dinâmicos cruzados com regiões sombreadas indicando as ondas de ataque.
 
+## Active Learning e Atraso de Rótulos na Classificação
+
+Os experimentos A, B e C de classificação estão implementados em
+`src/Classification/Labeling.py`. A execução completa usa
+`run_classification_labeling.py`, com Random Sampling, atraso proporcional ao
+cenário e treinamento supervisionado inicial no primeiro bloco benigno e na
+primeira região de ataque.
+
+Consulte:
+
+- [METODOLOGIA_CLASSIFICACAO.md](METODOLOGIA_CLASSIFICACAO.md) para metodologia,
+  protocolo experimental, métricas e comandos;
+- [GUIA_CODIGO_CLASSIFICACAO.md](GUIA_CODIGO_CLASSIFICACAO.md) para classes,
+  funções, fluxo interno e arquivos gerados.
+
 
 
 
