@@ -1,9 +1,9 @@
 /datasets
-/data
+# /data
 /output
 *.pdf
 .venv
-*.csv
+# *.csv
 .vscode
 __pycache__/
 *.py[cod]
