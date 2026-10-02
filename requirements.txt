@@ -4,7 +4,6 @@ scikit-learn
 numpy
 pyarrow
 jpype1
-torch
 matplotlib
 seaborn
 optuna
