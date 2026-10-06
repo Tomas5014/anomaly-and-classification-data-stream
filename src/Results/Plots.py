@@ -1,12 +1,9 @@
 import os
 import re
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.ticker import MaxNLocator
-import os
-import pandas as pd
 
 class Plots:
     def __init__(self, target_names):
@@ -303,3 +300,295 @@ class Plots:
         os.makedirs(output_dir, exist_ok=True)
         plt.savefig(os.path.join(output_dir, f"{algo_name}_{title}_FP_FN.png"), bbox_inches='tight')
         plt.close(fig)
+
+    def plot_labeling_fp_fn(
+        self,
+        model_name,
+        data,
+        attack_regions=None,
+        title="Contagem de FP e FN",
+        window_size=100,
+        scenario_name="Default_FullFeatures",
+        configuration_slug="configuration",
+        experiment="A",
+        delay_percentage=0.0,
+        label_budget_percentage=100.0,
+        exec_id="N/A",
+        output_dir="output/ClassificationLabeling",
+    ):
+        """Plot stream errors and label-flow diagnostics for one configuration."""
+
+        def clean(values):
+            return np.asarray(
+                [0.0 if value is None or np.isnan(value) else value for value in values],
+                dtype=float,
+            )
+
+        def safe_name(value):
+            return re.sub(r"[^\w.-]+", "_", str(value)).strip("_") or "results"
+
+        instances = np.asarray(data.get("instances", []), dtype=float)
+        if instances.size == 0:
+            raise ValueError("Detailed FP/FN plots require prequential window metrics")
+
+        fp_mean = clean(data.get("fp_mean", []))
+        fp_std = clean(data.get("fp_std", np.zeros_like(fp_mean)))
+        fn_mean = clean(data.get("fn_mean", []))
+        fn_std = clean(data.get("fn_std", np.zeros_like(fn_mean)))
+        queried_mean = clean(data.get("queried_window_mean", np.zeros_like(instances)))
+        queried_std = clean(data.get("queried_window_std", np.zeros_like(instances)))
+        delivered_mean = clean(data.get("delivered_window_mean", np.zeros_like(instances)))
+        delivered_std = clean(data.get("delivered_window_std", np.zeros_like(instances)))
+        pending_mean = clean(data.get("pending_window_mean", np.zeros_like(instances)))
+        pending_std = clean(data.get("pending_window_std", np.zeros_like(instances)))
+
+        expected_size = instances.size
+        series = {
+            "FP": fp_mean,
+            "FP std": fp_std,
+            "FN": fn_mean,
+            "FN std": fn_std,
+            "queried": queried_mean,
+            "queried std": queried_std,
+            "delivered": delivered_mean,
+            "delivered std": delivered_std,
+            "pending": pending_mean,
+            "pending std": pending_std,
+        }
+        invalid = [name for name, values in series.items() if values.size != expected_size]
+        if invalid:
+            raise ValueError(
+                "Detailed FP/FN plot received inconsistent window series: "
+                + ", ".join(invalid)
+            )
+
+        fig, (ax_fp, ax_fn, ax_labels) = plt.subplots(
+            3,
+            1,
+            figsize=(16, 12),
+            sharex=True,
+            gridspec_kw={"height_ratios": [1.0, 1.0, 0.9]},
+        )
+        error_color = "#1f77b4"
+
+        ax_fp.plot(
+            instances,
+            fp_mean,
+            color=error_color,
+            linewidth=2.2,
+            marker="o",
+            markersize=4,
+            label="FP médio",
+            zorder=4,
+        )
+        ax_fp.fill_between(
+            instances,
+            np.maximum(0.0, fp_mean - fp_std),
+            fp_mean + fp_std,
+            color=error_color,
+            alpha=0.18,
+            label="Desvio-padrão",
+            zorder=3,
+        )
+        ax_fn.plot(
+            instances,
+            fn_mean,
+            color=error_color,
+            linewidth=2.2,
+            marker="o",
+            markersize=4,
+            label="FN médio",
+            zorder=4,
+        )
+        ax_fn.fill_between(
+            instances,
+            np.maximum(0.0, fn_mean - fn_std),
+            fn_mean + fn_std,
+            color=error_color,
+            alpha=0.18,
+            zorder=3,
+        )
+
+        queried_color = "#2ca02c"
+        delivered_color = "#ff7f0e"
+        pending_color = "#9467bd"
+        ax_labels.plot(
+            instances,
+            queried_mean,
+            color=queried_color,
+            linewidth=2.0,
+            marker="o",
+            markersize=3.5,
+            label="Rótulos consultados na janela",
+            zorder=4,
+        )
+        ax_labels.fill_between(
+            instances,
+            np.maximum(0.0, queried_mean - queried_std),
+            queried_mean + queried_std,
+            color=queried_color,
+            alpha=0.13,
+            zorder=3,
+        )
+        ax_labels.plot(
+            instances,
+            delivered_mean,
+            color=delivered_color,
+            linewidth=2.0,
+            marker="s",
+            markersize=3.5,
+            label="Rótulos entregues na janela",
+            zorder=4,
+        )
+        ax_labels.fill_between(
+            instances,
+            np.maximum(0.0, delivered_mean - delivered_std),
+            delivered_mean + delivered_std,
+            color=delivered_color,
+            alpha=0.13,
+            zorder=3,
+        )
+
+        ax_pending = ax_labels.twinx()
+        ax_pending.patch.set_visible(False)
+        ax_pending.plot(
+            instances,
+            pending_mean,
+            color=pending_color,
+            linewidth=1.9,
+            linestyle="--",
+            label="Rótulos pendentes ao fim da janela",
+            zorder=5,
+        )
+        ax_pending.fill_between(
+            instances,
+            np.maximum(0.0, pending_mean - pending_std),
+            pending_mean + pending_std,
+            color=pending_color,
+            alpha=0.10,
+            zorder=2,
+        )
+
+        initial_training = int(data.get("initial_training_instances", 0))
+        initial_training_end = int(
+            data.get("initial_training_end_index", initial_training - 1)
+        )
+        delay_instances = int(data.get("delay_instances", 0))
+        first_possible_delivery = initial_training + delay_instances
+        total_instances = int(data.get("total_instances", instances[-1] + 1))
+
+        axes = (ax_fp, ax_fn, ax_labels)
+        for axis_index, axis in enumerate(axes):
+            if initial_training_end >= 0:
+                axis.axvspan(
+                    0,
+                    initial_training_end,
+                    facecolor="#9e9e9e",
+                    alpha=0.16,
+                    hatch="//",
+                    edgecolor="#777777",
+                    linewidth=0.0,
+                    label="Treinamento inicial" if axis_index == 0 else None,
+                    zorder=0,
+                )
+                axis.axvline(
+                    initial_training_end,
+                    color="#555555",
+                    linewidth=1.2,
+                    linestyle="-.",
+                    zorder=2,
+                )
+            if delay_instances > 0 and first_possible_delivery < total_instances:
+                axis.axvline(
+                    first_possible_delivery,
+                    color="#7b1fa2",
+                    linewidth=1.4,
+                    linestyle=":",
+                    label=(
+                        "Primeiro retorno possível após o atraso"
+                        if axis_index == 0
+                        else None
+                    ),
+                    zorder=2,
+                )
+            self._add_attack_regions(
+                axis,
+                attack_regions,
+                alpha=0.24,
+                show_legend=axis_index == 0,
+                show_labels=axis_index == 0,
+            )
+            axis.set_ylim(bottom=0)
+            axis.grid(True, alpha=0.28, linestyle=":", zorder=0)
+
+        ax_fp.set_ylabel("Falsos positivos")
+        ax_fn.set_ylabel("Falsos negativos")
+        ax_labels.set_ylabel("Rótulos por janela")
+        ax_pending.set_ylabel("Rótulos pendentes", color=pending_color)
+        ax_pending.tick_params(axis="y", colors=pending_color)
+        ax_pending.set_ylim(bottom=0)
+        ax_labels.set_xlabel("Índice da instância no cenário")
+        ax_fp.set_xlim(0, max(total_instances - 1, 1))
+
+        labeling = data.get("labeling", {})
+        effective_query = labeling.get("effective_query_percentage", (0.0, 0.0))
+        queried_total = labeling.get("queried_instances", (0.0, 0.0))
+        delivered_total = labeling.get("delivered_during_stream", (0.0, 0.0))
+        flushed_total = labeling.get("flushed_after_stream", (0.0, 0.0))
+        run_count = int(data.get("run_count", 1))
+        run_label = "execução" if run_count == 1 else "execuções"
+
+        fig.suptitle(
+            f"{model_name} — {title} — Experimento {experiment}\n"
+            f"{scenario_name} | atraso {delay_percentage:g}% "
+            f"({delay_instances} instâncias) | orçamento {label_budget_percentage:g}% | "
+            f"consulta efetiva {effective_query[0]:.2f}% ± {effective_query[1]:.2f}%\n"
+            f"treino inicial {initial_training} | janela {window_size} | "
+            f"{run_count} {run_label} | consultados {queried_total[0]:.1f} ± {queried_total[1]:.1f} | "
+            f"entregues no fluxo {delivered_total[0]:.1f} ± {delivered_total[1]:.1f} | "
+            f"liberados após o fim {flushed_total[0]:.1f} ± {flushed_total[1]:.1f}",
+            fontsize=13,
+            fontweight="bold",
+            y=0.995,
+        )
+
+        top_handles, top_labels = ax_fp.get_legend_handles_labels()
+        ax_fp.legend(
+            top_handles,
+            top_labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.13),
+            ncol=min(5, max(1, len(top_handles))),
+            fontsize=9,
+            frameon=False,
+        )
+        label_handles, label_labels = ax_labels.get_legend_handles_labels()
+        pending_handles, pending_labels = ax_pending.get_legend_handles_labels()
+        ax_labels.legend(
+            label_handles + pending_handles,
+            label_labels + pending_labels,
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.20),
+            ncol=3,
+            fontsize=9,
+            frameon=False,
+        )
+
+        fig.subplots_adjust(top=0.88, bottom=0.13, hspace=0.42, right=0.91)
+        final_dir = os.path.join(
+            str(output_dir),
+            "plots",
+            "stream",
+            safe_name(scenario_name),
+            safe_name(title),
+            safe_name(exec_id),
+            safe_name(model_name),
+        )
+        os.makedirs(final_dir, exist_ok=True)
+        file_path = os.path.join(
+            final_dir,
+            f"{safe_name(configuration_slug)}_FP_FN_Labeling.png",
+        )
+        fig.savefig(file_path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        return file_path

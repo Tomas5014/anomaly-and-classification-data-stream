@@ -57,6 +57,10 @@ python run_classification_labeling.py \
   --n-runs 5
 ```
 
+Add `--plots` to generate one detailed stream figure per model and labeling
+configuration. Each figure shows FP, FN, attack regions, initial training, and
+the number of queried, delivered, and pending labels in every window.
+
 Run `python run_classification_labeling.py --help` for dataset, feature-set,
 window, output, plot, seed, and attack-gap options.
 
@@ -106,8 +110,11 @@ print(suite["paths"])
 `run_suite` saves cumulative and prequential CSV files under
 `output/ClassificationLabeling`. Equivalent configurations shared by experiments
 A, B, and C are executed once and copied into each experiment's result rows.
-Set `generate_plots=True` to create F1, precision, recall, FP, and FN plots for
-every configuration.
+Set `generate_plots=True` to create F1, precision, and recall plots plus a
+detailed FP/FN and label-flow diagnostic for every configuration. The detailed
+figures are written below `output/ClassificationLabeling/plots/stream`. The
+prequential CSV also stores queried, delivered, and pending-label mean and
+standard-deviation columns for each window.
 
 ## Public API
 

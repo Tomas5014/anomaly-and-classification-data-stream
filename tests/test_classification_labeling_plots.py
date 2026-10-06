@@ -12,6 +12,7 @@ from plot_classification_labeling_results import (
     plot_heatmap_c,
     slugify,
 )
+from src.Results.Plots import Plots
 
 
 def cumulative_row(**overrides):
@@ -122,6 +123,52 @@ class ClassificationLabelingPlotsTest(unittest.TestCase):
             self.assertEqual(paths, [output_base.with_suffix(".png")])
             self.assertTrue(paths[0].is_file())
             self.assertGreater(paths[0].stat().st_size, 0)
+
+    def test_detailed_fp_fn_and_label_flow_plot_is_written(self):
+        data = {
+            "instances": [3, 5, 7],
+            "fp_mean": [0.0, 1.0, 0.0],
+            "fp_std": [0.0, 0.2, 0.0],
+            "fn_mean": [1.0, 0.0, 2.0],
+            "fn_std": [0.1, 0.0, 0.3],
+            "queried_window_mean": [2.0, 2.0, 2.0],
+            "queried_window_std": [0.0, 0.0, 0.0],
+            "delivered_window_mean": [0.0, 1.0, 2.0],
+            "delivered_window_std": [0.0, 0.1, 0.0],
+            "pending_window_mean": [2.0, 3.0, 3.0],
+            "pending_window_std": [0.0, 0.2, 0.2],
+            "initial_training_instances": 2,
+            "initial_training_end_index": 1,
+            "delay_instances": 2,
+            "total_instances": 8,
+            "run_count": 5,
+            "labeling": {
+                "effective_query_percentage": (100.0, 0.0),
+                "queried_instances": (6.0, 0.0),
+                "delivered_during_stream": (3.0, 0.2),
+                "flushed_after_stream": (3.0, 0.2),
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            path = Plots(["BENIGN", "DNS"]).plot_labeling_fp_fn(
+                model_name="HoeffdingTree",
+                data=data,
+                attack_regions=[(2, 3, 1), (6, 7, 1)],
+                title="Adaptação_25",
+                window_size=2,
+                scenario_name="Default_FullFeatures",
+                configuration_slug="experiment_C_delay_25pct_labels_100pct",
+                experiment="C",
+                delay_percentage=25.0,
+                label_budget_percentage=100.0,
+                exec_id="20261006_120000",
+                output_dir=temporary_directory,
+            )
+
+            output_path = Path(path)
+            self.assertTrue(output_path.is_file())
+            self.assertGreater(output_path.stat().st_size, 0)
 
 
 if __name__ == "__main__":

@@ -171,6 +171,9 @@ Principais campos retornados:
 | `instances` | índice final de cada janela |
 | `window_sizes` | tamanho real de cada janela |
 | `f1`, `precision`, `recall`, `fp`, `fn` | métricas por janela |
+| `queried_window` | rótulos consultados em cada janela |
+| `delivered_window` | rótulos entregues ao modelo em cada janela |
+| `pending_window` | tamanho da fila pendente ao final de cada janela |
 | `initial_training_instances` | tamanho do treinamento inicial |
 | `evaluation_instances` | instâncias avaliadas |
 | `delay_instances` | atraso em instâncias |
@@ -251,7 +254,11 @@ O retorno contém:
     "results": resultados_por_configuração,
     "cumulative": dataframe_cumulativo,
     "prequential": dataframe_prequencial,
-    "paths": caminhos_dos_csvs,
+    "paths": {
+        "cumulative": caminho_csv_cumulativo,
+        "prequential": caminho_csv_prequencial,
+        "plots": caminhos_dos_graficos_detalhados,
+    },
 }
 ```
 
@@ -332,7 +339,10 @@ e recall são multiplicados por 100.
 
 ### `src/Results/Plots.py`
 
-`plot_metrics` e `plot_fp_fn` são chamados somente com `--plots`.
+`plot_metrics` e `plot_labeling_fp_fn` são chamados somente com `--plots`. O
+segundo mantém o gráfico temporal de FP/FN e acrescenta um terceiro painel com
+rótulos consultados, entregues e pendentes por janela. O título também registra
+atraso, orçamento nominal, consulta efetiva, treinamento inicial e repetições.
 
 ## 6. Testes
 

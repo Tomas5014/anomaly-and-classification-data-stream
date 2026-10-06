@@ -228,6 +228,12 @@ O fluxo é dividido em janelas consecutivas, com tamanho padrão de 100. Para ca
 janela são calculados F1, precisão, recall, FP e FN. A última janela é mantida
 mesmo quando é menor; `Window_Instances` informa seu tamanho real.
 
+Também são auditados por janela:
+
+- rótulos consultados pelo Random Sampling;
+- rótulos entregues ao modelo naquela janela;
+- rótulos que continuam pendentes ao final da janela.
+
 ## 9. Arquivos gerados
 
 Por padrão, os resultados ficam em `output/ClassificationLabeling`:
@@ -236,7 +242,9 @@ Por padrão, os resultados ficam em `output/ClassificationLabeling`:
 - `*_prequential.csv`: uma linha por janela, configuração e modelo.
 
 Os arquivos usam `;` como separador. A opção `--plots` também gera gráficos de
-F1, precisão, recall, FP e FN.
+F1, precisão e recall e uma figura detalhada com FP/FN, regiões e nomes dos
+ataques e dinâmica da rotulagem. Esses gráficos ficam em
+`output/ClassificationLabeling/plots/stream`.
 
 ## 10. Execução
 

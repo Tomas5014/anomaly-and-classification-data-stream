@@ -675,6 +675,9 @@ calculados:
 - recall;
 - FP;
 - FN.
+- rótulos consultados na janela;
+- rótulos entregues na janela;
+- rótulos ainda pendentes ao final da janela.
 
 Se o número de instâncias não for múltiplo de 100, uma janela parcial é gerada.
 
@@ -688,6 +691,15 @@ Exemplo:
 ```
 
 `Window_Instances` registra o tamanho real da janela.
+
+As três séries de rotulagem são gravadas no CSV prequencial como:
+
+- `Queried_Window_avg` e `Queried_Window_std`;
+- `Delivered_Window_avg` e `Delivered_Window_std`;
+- `Pending_At_Window_End_avg` e `Pending_At_Window_End_std`.
+
+Elas permitem distinguir falta de consulta de um rótulo que foi consultado,
+mas ainda não chegou por causa do atraso.
 
 As métricas cumulativas usam todas as previsões da região de avaliação.
 

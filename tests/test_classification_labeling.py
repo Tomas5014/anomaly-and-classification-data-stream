@@ -98,6 +98,23 @@ class ClassificationLabelingTest(unittest.TestCase):
         self.assertEqual(result["flushed_after_stream"], 0)
         self.assertEqual(result["window_sizes"], [3, 1])
         self.assertEqual(len(result["instances"]), 2)
+        self.assertEqual(result["queried_window"], [3, 1])
+        self.assertEqual(result["delivered_window"], [3, 1])
+        self.assertEqual(result["pending_window"], [0, 0])
+
+    def test_delayed_label_flow_is_recorded_per_window(self):
+        result = self.runner.prequential_test(
+            stream=FakeStream(self.labels),
+            learner=FakeLearner(),
+            delay_fraction=0.25,
+            label_probability=1.0,
+            window_evaluation=2,
+        )
+
+        self.assertEqual(result["queried_window"], [2, 2])
+        self.assertEqual(result["delivered_window"], [0, 2])
+        self.assertEqual(result["pending_window"], [2, 2])
+        self.assertEqual(result["flushed_after_stream"], 2)
 
     def test_delayed_labels_are_causal_and_flushed(self):
         learner = FakeLearner()
@@ -113,6 +130,30 @@ class ClassificationLabelingTest(unittest.TestCase):
         self.assertEqual(result["delivered_during_stream"], 2)
         self.assertEqual(result["flushed_after_stream"], 2)
         self.assertEqual(learner.trained_indices, list(range(8)))
+
+    def test_prequential_table_contains_label_flow_by_window(self):
+        suite = self.runner.run_suite(
+            stream=FakeStream(self.labels),
+            algorithms={"FakeModel": lambda run_seed=None: FakeLearner()},
+            experiments=("A",),
+            window_evaluation=2,
+            save_csv=False,
+        )
+
+        prequential = suite["prequential"]
+        expected_columns = {
+            "Queried_Window_avg",
+            "Queried_Window_std",
+            "Delivered_Window_avg",
+            "Delivered_Window_std",
+            "Pending_At_Window_End_avg",
+            "Pending_At_Window_End_std",
+        }
+        self.assertTrue(expected_columns.issubset(prequential.columns))
+        first_window = prequential.iloc[0]
+        self.assertEqual(first_window["Queried_Window_avg"], 2)
+        self.assertEqual(first_window["Delivered_Window_avg"], 2)
+        self.assertEqual(first_window["Pending_At_Window_End_avg"], 0)
 
     def test_random_sampling_is_reproducible(self):
         labels = [0, 0, 1, 1] + [0, 1] * 50

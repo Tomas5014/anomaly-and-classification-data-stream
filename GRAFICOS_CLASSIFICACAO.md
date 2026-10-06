@@ -25,7 +25,8 @@ PNG, PDF ou SVG + manifest.csv
 
 Isso separa duas responsabilidades:
 
-- `run_classification_labeling.py`: executa os modelos e produz dados;
+- `run_classification_labeling.py`: executa os modelos, produz dados e, com
+  `--plots`, gera diagnósticos temporais detalhados de cada configuração;
 - `plot_classification_labeling_results.py`: lê os dados e produz figuras.
 
 Assim, é possível alterar aparência, filtros e formatos sem gastar tempo
@@ -89,6 +90,10 @@ obrigatórias incluem:
 - identificação e configuração experimental;
 - `Window_Index`, `Window_Instances` e `Instance`;
 - média e desvio-padrão de F1, precisão e recall por janela.
+
+Os arquivos produzidos pela versão atual também incluem FP/FN, rótulos
+consultados e entregues e quantidade pendente ao final de cada janela. Essas
+colunas adicionais alimentam o diagnóstico detalhado criado com `--plots`.
 
 O programa interrompe a execução e informa o arquivo quando alguma coluna
 obrigatória não existe.
@@ -261,6 +266,44 @@ O formato de cada valor é:
 ```text
 ATRASO:ORCAMENTO
 ```
+
+### 5.7. FP/FN, ataques e dinâmica dos rótulos
+
+Este diagnóstico é gerado durante o experimento com:
+
+```bash
+python run_classification_labeling.py \
+  --categories Adaptação \
+  --sizes 25 \
+  --models ARF \
+  --experiments A B C \
+  --plots
+```
+
+Cada configuração produz uma imagem em:
+
+```text
+output/ClassificationLabeling/plots/stream/
+└── <cenário de features>/<dataset>/<execução>/<modelo>/
+    └── experiment_<A|B|C>_delay_<D>pct_labels_<B>pct_FP_FN_Labeling.png
+```
+
+A figura possui três painéis temporais:
+
+1. FP médio por janela e seu desvio-padrão;
+2. FN médio por janela e seu desvio-padrão;
+3. rótulos consultados, entregues e pendentes por janela.
+
+As faixas coloridas mostram as regiões e os tipos de ataque. A área cinza
+hachurada identifica o treinamento inicial. Quando existe atraso, uma linha
+pontilhada marca o primeiro instante em que um rótulo consultado imediatamente
+após o treinamento poderia retornar.
+
+O título registra experimento, atraso percentual e em instâncias, orçamento
+nominal, consulta efetiva, tamanho do treinamento inicial, janela, número de
+execuções, total consultado, total entregue durante o fluxo e total liberado
+depois do fim. Diferentemente dos gráficos acumulados `errors_experiment_A/B`,
+esta figura mostra em qual trecho do fluxo cada erro ocorreu.
 
 ## 6. Suavização prequencial
 

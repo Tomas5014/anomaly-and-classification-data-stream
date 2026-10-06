@@ -173,11 +173,16 @@ class ClassificationLabelingExperimentRunner:
         recall_values = []
         fp_values = []
         fn_values = []
+        queried_window_values = []
+        delivered_window_values = []
+        pending_window_values = []
 
         initial_training_instances = 0
         evaluation_instances = 0
         delivered_during_stream = 0
         last_window_size = 0
+        queried_in_window = 0
+        delivered_in_window = 0
 
         start_time = time.time()
 
@@ -199,6 +204,7 @@ class ClassificationLabelingExperimentRunner:
                 _, delayed_instance = pending_labels.popleft()
                 learner.train(delayed_instance)
                 delivered_during_stream += 1
+                delivered_in_window += 1
 
             prediction = learner.predict(instance)
             prediction = self.normal_class_idx if prediction is None else int(prediction)
@@ -212,9 +218,11 @@ class ClassificationLabelingExperimentRunner:
             )
             if selected_for_labeling:
                 queried_indices.append(stream_index)
+                queried_in_window += 1
                 if delay_instances == 0:
                     learner.train(instance)
                     delivered_during_stream += 1
+                    delivered_in_window += 1
                 else:
                     pending_labels.append((stream_index + delay_instances, instance))
 
@@ -235,6 +243,11 @@ class ClassificationLabelingExperimentRunner:
                 )
                 last_window_size = window_evaluation
                 window_sizes.append(window_evaluation)
+                queried_window_values.append(queried_in_window)
+                delivered_window_values.append(delivered_in_window)
+                pending_window_values.append(len(pending_labels))
+                queried_in_window = 0
+                delivered_in_window = 0
 
         if window_evaluation is not None:
             remainder = evaluation_instances % window_evaluation
@@ -252,6 +265,9 @@ class ClassificationLabelingExperimentRunner:
                 )
                 last_window_size = remainder
                 window_sizes.append(remainder)
+                queried_window_values.append(queried_in_window)
+                delivered_window_values.append(delivered_in_window)
+                pending_window_values.append(len(pending_labels))
 
         pending_at_stream_end = len(pending_labels)
         if flush_pending_labels:
@@ -277,6 +293,9 @@ class ClassificationLabelingExperimentRunner:
             "recall": recall_values,
             "fp": fp_values,
             "fn": fn_values,
+            "queried_window": queried_window_values,
+            "delivered_window": delivered_window_values,
+            "pending_window": pending_window_values,
             "exec_time": execution_time,
             "total_instances": total_instances,
             "initial_training_instances": initial_training_instances,
@@ -349,6 +368,7 @@ class ClassificationLabelingExperimentRunner:
         result_cache = {}
         cumulative_rows = []
         prequential_rows = []
+        plot_paths = []
 
         for config in configs:
             cache_key = (config.delay_fraction, config.label_probability)
@@ -386,17 +406,21 @@ class ClassificationLabelingExperimentRunner:
             )
 
             if generate_plots and window_evaluation is not None:
-                self._generate_plots(
-                    predictions_history,
-                    config,
-                    experiment_name,
-                    scenario_name,
-                    window_evaluation,
+                plot_paths.extend(
+                    self._generate_plots(
+                        predictions_history,
+                        config,
+                        experiment_name,
+                        scenario_name,
+                        exec_id,
+                        window_evaluation,
+                        output_dir,
+                    )
                 )
 
         cumulative_df = pd.DataFrame(cumulative_rows)
         prequential_df = pd.DataFrame(prequential_rows)
-        paths = {}
+        paths = {"plots": plot_paths}
 
         if save_csv:
             os.makedirs(output_dir, exist_ok=True)
@@ -405,10 +429,12 @@ class ClassificationLabelingExperimentRunner:
             prequential_path = os.path.join(output_dir, f"{prefix}_prequential.csv")
             cumulative_df.to_csv(cumulative_path, sep=";", index=False)
             prequential_df.to_csv(prequential_path, sep=";", index=False)
-            paths = {
-                "cumulative": cumulative_path,
-                "prequential": prequential_path,
-            }
+            paths.update(
+                {
+                    "cumulative": cumulative_path,
+                    "prequential": prequential_path,
+                }
+            )
 
         return {
             "results": results_by_config,
@@ -511,6 +537,7 @@ class ClassificationLabelingExperimentRunner:
             "true_labels_multi": runs[0]["true_labels_multi"],
             "total_instances": runs[0]["total_instances"],
             "initial_training_instances": runs[0]["initial_training_instances"],
+            "initial_training_end_index": runs[0]["initial_training_end_index"],
             "evaluation_instances": runs[0]["evaluation_instances"],
             "delay_instances": runs[0]["delay_instances"],
             "run_count": len(runs),
@@ -546,6 +573,9 @@ class ClassificationLabelingExperimentRunner:
             ("recall", "recall"),
             ("fp", "fp"),
             ("fn", "fn"),
+            ("queried_window", "queried_window"),
+            ("delivered_window", "delivered_window"),
+            ("pending_window", "pending_window"),
         ):
             matrix = np.asarray([run[key] for run in runs], dtype=float)
             result[f"{output_key}_mean"] = np.mean(matrix, axis=0)
@@ -643,6 +673,12 @@ class ClassificationLabelingExperimentRunner:
                         "FP_std": data["fp_std"][index],
                         "FN_avg": data["fn_mean"][index],
                         "FN_std": data["fn_std"][index],
+                        "Queried_Window_avg": data["queried_window_mean"][index],
+                        "Queried_Window_std": data["queried_window_std"][index],
+                        "Delivered_Window_avg": data["delivered_window_mean"][index],
+                        "Delivered_Window_std": data["delivered_window_std"][index],
+                        "Pending_At_Window_End_avg": data["pending_window_mean"][index],
+                        "Pending_At_Window_End_std": data["pending_window_std"][index],
                     }
                 )
         return rows
@@ -653,8 +689,11 @@ class ClassificationLabelingExperimentRunner:
         config,
         experiment_name,
         scenario_name,
+        exec_id,
         window_evaluation,
+        output_dir,
     ):
+        generated_paths = []
         for model_name, data in predictions_history.items():
             single_model_result = {model_name: data}
             attack_regions = self.metrics.extract_attack_regions(
@@ -670,14 +709,23 @@ class ClassificationLabelingExperimentRunner:
                 scenario_name=plot_scenario,
                 discretization_strategy=plot_strategy,
             )
-            self.plots.plot_fp_fn(
-                results=single_model_result,
-                attack_regions=attack_regions,
-                title=experiment_name,
-                window_size=window_evaluation,
-                scenario_name=plot_scenario,
-                discretization_strategy=plot_strategy,
+            generated_paths.append(
+                self.plots.plot_labeling_fp_fn(
+                    model_name=model_name,
+                    data=data,
+                    attack_regions=attack_regions,
+                    title=experiment_name,
+                    window_size=window_evaluation,
+                    scenario_name=scenario_name,
+                    configuration_slug=config.slug,
+                    experiment=config.experiment,
+                    delay_percentage=config.delay_percentage,
+                    label_budget_percentage=config.label_budget_percentage,
+                    exec_id=exec_id,
+                    output_dir=output_dir,
+                )
             )
+        return generated_paths
 
 
 def _mean_std(values: Iterable[float]) -> tuple[float, float]:

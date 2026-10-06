@@ -116,7 +116,14 @@ def parse_args():
         type=Path,
         default=Path("output/ClassificationLabeling"),
     )
-    parser.add_argument("--plots", action="store_true")
+    parser.add_argument(
+        "--plots",
+        action="store_true",
+        help=(
+            "Gera, durante o experimento, gráficos detalhados de FP/FN, "
+            "regiões de ataque e dinâmica dos rótulos por janela."
+        ),
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -262,6 +269,9 @@ def main():
             print(f"  Features: {len(features)}")
             print(f"  Cumulative: {suite['paths']['cumulative']}")
             print(f"  Prequential: {suite['paths']['prequential']}")
+            if suite["paths"]["plots"]:
+                print(f"  Detailed plots: {len(suite['paths']['plots'])}")
+                print(f"  First plot: {suite['paths']['plots'][0]}")
 
 
 if __name__ == "__main__":
