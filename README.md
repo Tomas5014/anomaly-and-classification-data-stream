@@ -129,9 +129,11 @@ Consulte:
 - [METODOLOGIA_CLASSIFICACAO.md](METODOLOGIA_CLASSIFICACAO.md) para metodologia,
   protocolo experimental, métricas e comandos;
 - [GUIA_CODIGO_CLASSIFICACAO.md](GUIA_CODIGO_CLASSIFICACAO.md) para classes,
-  funções, fluxo interno e arquivos gerados.
-
-
+  funções, fluxo interno e arquivos gerados;
+- [IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md](IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md)
+  para entender detalhadamente Random Sampling, ausência e atraso de rótulos;
+- [GRAFICOS_CLASSIFICACAO.md](GRAFICOS_CLASSIFICACAO.md) para gerar e interpretar
+  gráficos cumulativos, agregados e prequenciais sem retreinar os modelos.
 
 
 

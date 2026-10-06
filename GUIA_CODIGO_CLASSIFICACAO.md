@@ -26,6 +26,7 @@ Arquivos envolvidos:
 | Arquivo | Responsabilidade |
 |---|---|
 | `run_classification_labeling.py` | CLI e orquestração |
+| `plot_classification_labeling_results.py` | Gráficos a partir dos CSVs existentes |
 | `src/Classification/Labeling.py` | Regras dos experimentos A, B e C |
 | `src/Classification/Models.py` | Classificadores CapyMOA |
 | `src/Data/Processor.py` | Pré-processamento e criação do fluxo |
@@ -377,3 +378,10 @@ python run_classification_labeling.py \
 
 Para protocolo, fórmulas, justificativas e interpretação das métricas, consulte
 [METODOLOGIA_CLASSIFICACAO.md](METODOLOGIA_CLASSIFICACAO.md).
+
+Para geração de figuras cumulativas, agregadas e prequenciais, consulte
+[GRAFICOS_CLASSIFICACAO.md](GRAFICOS_CLASSIFICACAO.md).
+
+Para uma explicação passo a passo da ausência de rótulos, Random Sampling, fila
+de atrasos e integração com o CapyMOA, consulte
+[IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md](IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md).

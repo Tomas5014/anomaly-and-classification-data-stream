@@ -284,3 +284,6 @@ python -m unittest discover -s tests -v
 
 A explicação de classes, funções e estruturas internas está em
 [GUIA_CODIGO_CLASSIFICACAO.md](GUIA_CODIGO_CLASSIFICACAO.md).
+
+A mecânica detalhada da ausência e do atraso de rótulos está em
+[IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md](IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md).
