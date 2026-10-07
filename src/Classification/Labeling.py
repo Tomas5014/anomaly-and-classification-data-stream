@@ -156,6 +156,28 @@ class ClassificationLabelingExperimentRunner:
             raise ValueError("window_evaluation must be positive or None")
 
         total_instances = self._stream_size(stream)
+        training_label_mode = getattr(stream, "training_label_mode", "multiclass")
+        if training_label_mode not in {"binary", "multiclass"}:
+            raise ValueError("Unknown training_label_mode")
+        original_labels = getattr(stream, "original_label_indices", None)
+        original_target_names = list(
+            getattr(stream, "original_target_names", self.target_names)
+        )
+        original_normal_class_idx = next(
+            (
+                index for index, name in enumerate(original_target_names)
+                if str(name).strip().upper() in {"BENIGN", "NORMAL", "0"}
+            ),
+            self.normal_class_idx,
+        )
+        if original_labels is not None:
+            original_labels = np.asarray(original_labels)
+            if original_labels.shape != (total_instances,):
+                raise ValueError("Original label metadata must match the stream length")
+            if np.any(original_labels < 0) or np.any(
+                original_labels >= len(original_target_names)
+            ):
+                raise ValueError("Original label metadata contains invalid class indices")
         delay_instances = calculate_delay_instances(total_instances, delay_fraction)
         initial_training_end = self._find_initial_training_end(stream)
         rng = np.random.default_rng(self.random_seed if sampling_seed is None else sampling_seed)
@@ -191,9 +213,19 @@ class ClassificationLabelingExperimentRunner:
                 raise ValueError("Stream ended before its reported length")
 
             instance = stream.next_instance()
-            true_label_multiclass = int(instance.y_index)
-            true_labels_multi.append(true_label_multiclass)
-            is_normal = true_label_multiclass == self.normal_class_idx
+            true_label = int(instance.y_index)
+            if training_label_mode == "binary" and true_label not in {0, 1}:
+                raise ValueError("Binary training requires labels 0=BENIGN and 1=ATTACK")
+            is_normal = true_label == self.normal_class_idx
+            original_label = (
+                true_label if original_labels is None
+                else int(original_labels[stream_index])
+            )
+            if original_labels is not None and (
+                original_label == original_normal_class_idx
+            ) != is_normal:
+                raise ValueError("Original label metadata is not aligned with stream labels")
+            true_labels_multi.append(original_label)
 
             if stream_index < initial_training_end:
                 learner.train(instance)
@@ -286,6 +318,9 @@ class ClassificationLabelingExperimentRunner:
             "y_true": y_true,
             "y_pred": y_pred,
             "true_labels_multi": true_labels_multi,
+            "original_target_names": original_target_names,
+            "original_normal_class_idx": original_normal_class_idx,
+            "training_label_mode": training_label_mode,
             "instances": instances,
             "window_sizes": window_sizes,
             "f1": f1_values,
@@ -424,7 +459,10 @@ class ClassificationLabelingExperimentRunner:
 
         if save_csv:
             os.makedirs(output_dir, exist_ok=True)
-            prefix = _clean_filename(f"{experiment_name}_{scenario_name}_{exec_id}")
+            label_mode = getattr(stream, "training_label_mode", "multiclass")
+            prefix = _clean_filename(
+                f"{experiment_name}_{scenario_name}_{label_mode}Training_{exec_id}"
+            )
             cumulative_path = os.path.join(output_dir, f"{prefix}_cumulative.csv")
             prequential_path = os.path.join(output_dir, f"{prefix}_prequential.csv")
             cumulative_df.to_csv(cumulative_path, sep=";", index=False)
@@ -535,6 +573,9 @@ class ClassificationLabelingExperimentRunner:
             "instances": runs[0]["instances"],
             "window_sizes": runs[0]["window_sizes"],
             "true_labels_multi": runs[0]["true_labels_multi"],
+            "original_target_names": runs[0]["original_target_names"],
+            "original_normal_class_idx": runs[0]["original_normal_class_idx"],
+            "training_label_mode": runs[0]["training_label_mode"],
             "total_instances": runs[0]["total_instances"],
             "initial_training_instances": runs[0]["initial_training_instances"],
             "initial_training_end_index": runs[0]["initial_training_end_index"],
@@ -603,6 +644,8 @@ class ClassificationLabelingExperimentRunner:
                     "Experiment": config.experiment,
                     "Model": model_name,
                     "Scenario": scenario_name,
+                    "Training_Label_Mode": data["training_label_mode"],
+                    "Evaluation_Label_Mode": "binary",
                     "Delay_Percentage": config.delay_percentage,
                     "Delay_Instances": data["delay_instances"],
                     "Label_Budget_Percentage": config.label_budget_percentage,
@@ -655,6 +698,8 @@ class ClassificationLabelingExperimentRunner:
                         "Experiment": config.experiment,
                         "Model": model_name,
                         "Scenario": scenario_name,
+                        "Training_Label_Mode": data["training_label_mode"],
+                        "Evaluation_Label_Mode": "binary",
                         "Delay_Percentage": config.delay_percentage,
                         "Delay_Instances": data["delay_instances"],
                         "Label_Budget_Percentage": config.label_budget_percentage,
@@ -695,13 +740,15 @@ class ClassificationLabelingExperimentRunner:
     ):
         generated_paths = []
         for model_name, data in predictions_history.items():
+            plots = Plots(data["original_target_names"])
             single_model_result = {model_name: data}
             attack_regions = self.metrics.extract_attack_regions(
-                data["true_labels_multi"], normal_class_idx=self.normal_class_idx
+                data["true_labels_multi"],
+                normal_class_idx=data["original_normal_class_idx"],
             )
-            plot_scenario = f"{scenario_name}_{config.slug}"
+            plot_scenario = f"{scenario_name}_{data['training_label_mode']}Training_{config.slug}"
             plot_strategy = os.path.join("classification_labeling", config.experiment)
-            self.plots.plot_metrics(
+            plots.plot_metrics(
                 results=single_model_result,
                 attack_regions=attack_regions,
                 title=experiment_name,
@@ -710,7 +757,7 @@ class ClassificationLabelingExperimentRunner:
                 discretization_strategy=plot_strategy,
             )
             generated_paths.append(
-                self.plots.plot_labeling_fp_fn(
+                plots.plot_labeling_fp_fn(
                     model_name=model_name,
                     data=data,
                     attack_regions=attack_regions,

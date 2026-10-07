@@ -5,6 +5,18 @@ classification models and does not use the anomaly-detection pipeline.
 
 ## Experimental protocol
 
+The command-line runner now trains and evaluates a binary target by default:
+`0 = BENIGN`, `1 = ATTACK`. Use `--training-label-mode multiclass` only to study
+the previous multiclass-training/binary-evaluation formulation. New results
+must be generated; historical CSVs are not converted or overwritten.
+
+`build_stream` preserves its three-value return. The stream carries
+`training_label_mode`, `original_label_indices`, and `original_target_names`.
+Original attack families are plot metadata only; the learner and its delayed
+training queue receive the binary labels. Use `preserve_label_metadata=True`
+with `DataStreamProcessor.create_stream` to preserve this separation in custom
+code. The historical notebook is not modified by this migration.
+
 Every run treats the first benign block and the immediately following attack
 region as initial supervised training. These instances are trained immediately,
 without missing or delayed labels, and are excluded from evaluation metrics.
@@ -115,6 +127,17 @@ detailed FP/FN and label-flow diagnostic for every configuration. The detailed
 figures are written below `output/ClassificationLabeling/plots/stream`. The
 prequential CSV also stores queried, delivered, and pending-label mean and
 standard-deviation columns for each window.
+
+Both CSVs include `Training_Label_Mode` and `Evaluation_Label_Mode`.
+Filenames include `binaryTraining` or `multiclassTraining`. Detailed plots are
+separated below `plots/stream/<training mode>/`; summary plots are also grouped
+by training mode. The plot loader treats legacy project CSVs without these
+columns as multiclass training with binary evaluation and never averages them
+with binary-training results. To plot only the new protocol:
+
+```bash
+python plot_classification_labeling_results.py --training-label-mode binary
+```
 
 ## Public API
 

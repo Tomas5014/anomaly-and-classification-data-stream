@@ -537,10 +537,12 @@ class Plots:
         flushed_total = labeling.get("flushed_after_stream", (0.0, 0.0))
         run_count = int(data.get("run_count", 1))
         run_label = "execução" if run_count == 1 else "execuções"
+        label_mode = data.get("training_label_mode", "multiclass")
+        training_label = "binário" if label_mode == "binary" else "multiclasse"
 
         fig.suptitle(
             f"{model_name} — {title} — Experimento {experiment}\n"
-            f"{scenario_name} | atraso {delay_percentage:g}% "
+            f"{scenario_name} | treino {training_label} / avaliação binária | atraso {delay_percentage:g}% "
             f"({delay_instances} instâncias) | orçamento {label_budget_percentage:g}% | "
             f"consulta efetiva {effective_query[0]:.2f}% ± {effective_query[1]:.2f}%\n"
             f"treino inicial {initial_training} | janela {window_size} | "
@@ -579,6 +581,7 @@ class Plots:
             str(output_dir),
             "plots",
             "stream",
+            safe_name(label_mode),
             safe_name(scenario_name),
             safe_name(title),
             safe_name(exec_id),

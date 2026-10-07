@@ -103,7 +103,7 @@ class DataStreamProcessor:
         
         if binary_label:
             self._log("Target: Binarizando rótulos (0=BENIGN, 1=ATTACK)...")
-            is_benign = y_str.str.upper() == 'BENIGN'
+            is_benign = y_str.str.upper().isin(['BENIGN', 'NORMAL'])
             y = np.where(is_benign, 0, 1).astype(np.int8)
             target_names = ['BENIGN', 'ATTACK'] 
         else:
@@ -127,7 +127,7 @@ class DataStreamProcessor:
                       normalize_method=None, threshold_var=None,
                       threshold_corr=None, top_n_features=None,
                       return_stream=True, extra_ignore_cols=None,
-                      imputation_method='0'):
+                      imputation_method='0', preserve_label_metadata=False):
 
         # limpeza básica
         self._log("Limpeza: Removendo espaços, identificadores e colunas vazias...")
@@ -191,6 +191,14 @@ class DataStreamProcessor:
                 final_x_array, y, target_name="Class", 
                 feature_names=feature_names, target_type="categorical"
             )
+            stream_obj.training_label_mode = "binary" if binary_label else "multiclass"
+            if preserve_label_metadata:
+                original_y, original_names = self._encode_labels(
+                    df[target_label_col], binary_label=False
+                )
+                # Plot metadata is separate from the labels seen by the learner.
+                stream_obj.original_label_indices = original_y.to_numpy(copy=True)
+                stream_obj.original_target_names = list(original_names)
             return stream_obj, target_names, feature_names
         else:
             self._log("Finalização: Retornando DataFrame pandas processado.\n")

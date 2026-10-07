@@ -124,6 +124,19 @@ Os experimentos A, B e C de classificação estão implementados em
 cenário e treinamento supervisionado inicial no primeiro bloco benigno e na
 primeira região de ataque.
 
+O protocolo atual usa treinamento e avaliação binários: `0 = BENIGN` e
+`1 = ATTACK`. As famílias originais são preservadas separadamente para os
+gráficos. Os novos CSVs identificam o modo de treinamento, e o gerador de
+gráficos não mistura resultados binários com os históricos multiclasse.
+
+```bash
+python run_classification_labeling.py --experiments A B C --n-runs 5 --plots
+python plot_classification_labeling_results.py --training-label-mode binary
+```
+
+A execução completa precisa ser refeita para obter resultados binários; os
+CSVs antigos não são convertidos nem sobrescritos pela mudança de código.
+
 Consulte:
 
 - [METODOLOGIA_CLASSIFICACAO.md](METODOLOGIA_CLASSIFICACAO.md) para metodologia,
@@ -134,7 +147,6 @@ Consulte:
   para entender detalhadamente Random Sampling, ausência e atraso de rótulos;
 - [GRAFICOS_CLASSIFICACAO.md](GRAFICOS_CLASSIFICACAO.md) para gerar e interpretar
   gráficos cumulativos, agregados e prequenciais sem retreinar os modelos.
-
 
 
 

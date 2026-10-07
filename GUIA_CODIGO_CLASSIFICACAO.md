@@ -143,8 +143,14 @@ while pending_labels and pending_labels[0][0] <= stream_index:
 ```
 
 Depois ocorre a predição. Se o classificador retornar `None`, a classe normal é
-usada como resposta segura. Para as métricas, a saída multiclasse vira binária:
-normal é 0; qualquer ataque é 1.
+usada como resposta segura. No protocolo principal, o modelo e as métricas usam
+`0 = BENIGN` e `1 = ATTACK`. O modo histórico multiclasse continua disponível;
+nele, qualquer previsão de ataque é convertida para 1 nas métricas.
+
+Quando há `original_label_indices` e `original_target_names` no fluxo,
+`true_labels_multi` armazena esses metadados originais, e não os rótulos binários
+usados em `train()`. O runner valida tamanho, índices e alinhamento de benignos
+e ataques. Os metadados não alteram sorteio, atraso nem atualização do modelo.
 
 O Random Sampling ocorre depois da predição:
 
@@ -168,6 +174,9 @@ Principais campos retornados:
 |---|---|
 | `y_true`, `y_pred` | valores binários das métricas cumulativas |
 | `true_labels_multi` | classes originais do fluxo |
+| `original_target_names` | nomes das famílias usados nos gráficos |
+| `original_normal_class_idx` | índice benigno nos metadados originais |
+| `training_label_mode` | protocolo do alvo aprendido: `binary` ou `multiclass` |
 | `instances` | índice final de cada janela |
 | `window_sizes` | tamanho real de cada janela |
 | `f1`, `precision`, `recall`, `fp`, `fn` | métricas por janela |
@@ -289,6 +298,7 @@ Permite executar tudo sem editar notebook.
 | `--experiments` | A, B e/ou C | todos |
 | `--feature-sets` | `full` e/ou `selected` | `full` |
 | `--n-runs` | repetições | 5 |
+| `--training-label-mode` | alvo do treinamento: `binary` ou `multiclass` | `binary` |
 | `--seed` | semente inicial | 42 |
 | `--window` | tamanho da janela | 100 |
 | `--attack-gap-tolerance` | tolerância da primeira região | 1000 |
@@ -303,8 +313,19 @@ Permite executar tudo sem editar notebook.
 `resolve_datasets` monta caminhos no padrão
 `data/15k/<categoria>/<categoria>_<tamanho>.csv` e valida sua existência.
 
-`build_stream` carrega o CSV e usa `DataStreamProcessor` com rótulos multiclasse,
-Min-Max, imputação por mediana e remoção de identificadores de rede.
+`build_stream` carrega o CSV e usa `DataStreamProcessor` com rótulos binários
+por padrão, Min-Max, imputação por mediana e remoção de identificadores de rede.
+Seu argumento `binary_label=False` permite a formulação histórica. O retorno
+continua `(stream, targets, features)`; `targets` descreve o alvo aprendido.
+Com `preserve_label_metadata=True`, o processador também anexa os metadados das
+famílias originais ao fluxo, sem colocá-los no vetor de features.
+
+`_generate_plots` cria `Plots` com `original_target_names` e extrai as regiões de
+`true_labels_multi`. Assim, o gráfico continua identificando `Syn`, DNS etc.,
+mesmo que todas essas instâncias tenham sido treinadas como `ATTACK`.
+
+Ambos os CSVs exportam `Training_Label_Mode` e `Evaluation_Label_Mode`.
+Os arquivos recebem também `binaryTraining` ou `multiclassTraining` no nome.
 
 `build_model_factories` cria uma função por modelo. O argumento padrão
 `selected=model_name` captura corretamente o valor de cada iteração e evita que

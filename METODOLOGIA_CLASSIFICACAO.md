@@ -193,8 +193,20 @@ O `DataStreamProcessor`:
 6. codifica `BENIGN` como classe normal de índice zero;
 7. cria um `NumpyStream` do CapyMOA.
 
-O modelo continua multiclasse, mas as métricas são binárias: `BENIGN` é a classe
-negativa e qualquer outra classe é considerada ataque.
+O protocolo principal usa treinamento e avaliação binários: `0 = BENIGN` e
+`1 = ATTACK`, agrupando todas as famílias de ataque no rótulo positivo. Isso
+alinha a tarefa aprendida com as métricas de benigno contra ataque.
+
+O executor usa `binary_label=True` e `preserve_label_metadata=True`. Os nomes e
+índices das famílias originais ficam em `stream.original_target_names` e
+`stream.original_label_indices`, apenas para anotar os gráficos. Não são
+features nem rótulos adicionais entregues ao classificador. A fila de atraso
+guarda instâncias com o rótulo binário, inclusive para o treinamento inicial.
+
+Para estudar a formulação anterior, `--training-label-mode multiclass` mantém
+o treinamento multiclasse com avaliação binária. Esse modo não é misturado nas
+médias com o binário. Mudar o alvo pode alterar as previsões, mas não garante
+melhora de F1; é necessário executar novamente a grade experimental.
 
 Há duas opções de atributos:
 
@@ -245,6 +257,12 @@ Os arquivos usam `;` como separador. A opção `--plots` também gera gráficos 
 F1, precisão e recall e uma figura detalhada com FP/FN, regiões e nomes dos
 ataques e dinâmica da rotulagem. Esses gráficos ficam em
 `output/ClassificationLabeling/plots/stream`.
+
+Os dois CSVs incluem `Training_Label_Mode` (`binary` ou `multiclass`) e
+`Evaluation_Label_Mode` (`binary`). Os nomes novos contêm `binaryTraining` ou
+`multiclassTraining`, além do identificador da execução. Os arquivos históricos
+permanecem intactos e continuam representando o treinamento multiclasse; não é
+possível obter resultados binários apenas recalculando suas métricas.
 
 ## 10. Execução
 

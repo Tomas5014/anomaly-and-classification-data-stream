@@ -85,6 +85,7 @@ CUMULATIVE_KEY = [
     "Experiment",
     "Model",
     "Scenario",
+    "Training_Label_Mode",
     "Delay_Percentage",
     "Label_Budget_Percentage",
 ]
@@ -116,8 +117,8 @@ def parse_args(argv: Sequence[str] | None = None):
         "--exec-id",
         default="latest",
         help=(
-            "Execução usada: 'latest' escolhe a mais recente por dataset e "
-            "cenário, 'all' mantém todas, ou informe um Exec_ID específico."
+            "Execução usada: 'latest' escolhe a mais recente por dataset, "
+            "cenário e modo de treino; 'all' mantém todas, ou informe um Exec_ID."
         ),
     )
     parser.add_argument("--datasets", nargs="+", help="Filtra nomes da coluna Dataset.")
@@ -127,6 +128,11 @@ def parse_args(argv: Sequence[str] | None = None):
         help="Filtra modelos. Aceita LB, HAT, ARF, HT ou nomes completos.",
     )
     parser.add_argument("--scenarios", nargs="+", help="Filtra a coluna Scenario.")
+    parser.add_argument(
+        "--training-label-mode",
+        choices=("binary", "multiclass"),
+        help="Filtra o treinamento; modos diferentes nunca são agregados juntos.",
+    )
     parser.add_argument(
         "--scope",
         choices=("all", "individual", "aggregate"),
@@ -189,6 +195,30 @@ def parse_prequential_configs(values: Sequence[str]) -> tuple[tuple[float, float
     return tuple(dict.fromkeys(configs))
 
 
+def _with_label_modes(data: pd.DataFrame) -> pd.DataFrame:
+    """Identify legacy project CSVs without rewriting historical results."""
+    result = data.copy()
+    defaults = {
+        "Training_Label_Mode": "multiclass",
+        "Evaluation_Label_Mode": "binary",
+    }
+    for column, default in defaults.items():
+        if column not in result:
+            result[column] = default
+        else:
+            result.loc[result[column].isna(), column] = default
+    if not result["Training_Label_Mode"].isin(["binary", "multiclass"]).all():
+        raise ValueError("Training_Label_Mode deve ser binary ou multiclass")
+    if not result["Evaluation_Label_Mode"].eq("binary").all():
+        raise ValueError("Estes gráficos exigem Evaluation_Label_Mode=binary")
+    return result
+
+
+def _label_mode_title(label_mode: str) -> str:
+    training = "binário" if label_mode == "binary" else "multiclasse"
+    return f"treino {training} | avaliação binária"
+
+
 def load_results(input_dir: Path, kind: str, exec_selector: str = "latest") -> pd.DataFrame:
     if kind not in {"cumulative", "prequential"}:
         raise ValueError("kind must be 'cumulative' or 'prequential'")
@@ -210,7 +240,7 @@ def load_results(input_dir: Path, kind: str, exec_selector: str = "latest") -> p
         missing = sorted(required - set(frame.columns))
         if missing:
             raise ValueError(f"{path} não possui as colunas obrigatórias: {missing}")
-        frame = frame.assign(
+        frame = _with_label_modes(frame).assign(
             Exec_ID=frame["Exec_ID"].astype(str),
             _Source_File=str(path),
         )
@@ -228,7 +258,9 @@ def _select_executions(data: pd.DataFrame, selector: str) -> pd.DataFrame:
     if selector.lower() == "all":
         return data.copy()
     if selector.lower() == "latest":
-        latest = data.groupby(["Dataset", "Scenario"])["Exec_ID"].transform("max")
+        latest = data.groupby(["Dataset", "Scenario", "Training_Label_Mode"])[
+            "Exec_ID"
+        ].transform("max")
         return data[data["Exec_ID"] == latest].copy()
 
     selected = data[data["Exec_ID"] == selector].copy()
@@ -245,12 +277,14 @@ def filter_results(
     datasets: Sequence[str] | None = None,
     models: Sequence[str] | None = None,
     scenarios: Sequence[str] | None = None,
+    training_label_mode: str | None = None,
 ) -> pd.DataFrame:
-    result = data.copy()
+    result = _with_label_modes(data)
     filters = {
         "Dataset": list(datasets) if datasets else None,
         "Model": normalize_models(models, result["Model"].unique()) if models else None,
         "Scenario": list(scenarios) if scenarios else None,
+        "Training_Label_Mode": [training_label_mode] if training_label_mode else None,
     }
     for column, values in filters.items():
         if not values:
@@ -289,9 +323,11 @@ def normalize_models(
 def aggregate_results(data: pd.DataFrame) -> pd.DataFrame:
     """Create an unweighted macro-average without over-weighting repeated runs."""
 
+    data = _with_label_modes(data)
     config_columns = [
         "Dataset",
         "Scenario",
+        "Training_Label_Mode",
         "Experiment",
         "Model",
         "Delay_Percentage",
@@ -311,6 +347,7 @@ def aggregate_results(data: pd.DataFrame) -> pd.DataFrame:
     per_dataset = data.groupby(config_columns, as_index=False)[value_columns].mean()
     aggregate_columns = [
         "Scenario",
+        "Training_Label_Mode",
         "Experiment",
         "Model",
         "Delay_Percentage",
@@ -322,6 +359,7 @@ def aggregate_results(data: pd.DataFrame) -> pd.DataFrame:
         row = dict(zip(aggregate_columns, keys))
         row["Dataset"] = f"Média de {group['Dataset'].nunique()} datasets"
         row["Dataset_Count"] = int(group["Dataset"].nunique())
+        row["Evaluation_Label_Mode"] = "binary"
         for column in value_columns:
             row[column] = float(group[column].mean())
             if column in {"F1_avg", "Prec_avg", "Rec_avg", "FP_avg", "FN_avg"}:
@@ -699,17 +737,21 @@ def generate_individual_plots(
     dpi: int,
 ) -> list[dict]:
     records = []
-    group_columns = ["Exec_ID", "Dataset", "Scenario"]
-    for (exec_id, dataset, scenario), group in data.groupby(group_columns, sort=True):
+    data = _with_label_modes(data)
+    group_columns = ["Exec_ID", "Dataset", "Scenario", "Training_Label_Mode"]
+    for (exec_id, dataset, scenario, label_mode), group in data.groupby(
+        group_columns, sort=True
+    ):
         directory = (
             output_dir
             / "individual"
+            / label_mode
             / slugify(scenario)
             / slugify(dataset)
             / slugify(exec_id)
             / selection_slug(group, include_datasets=False)
         )
-        title = f"{dataset} | {scenario}"
+        title = f"{dataset} | {scenario} | {_label_mode_title(label_mode)}"
         specifications = [
             ("performance_A", plot_performance, (group, "A", title, directory / "performance_experiment_A", formats, dpi)),
             ("performance_B", plot_performance, (group, "B", title, directory / "performance_experiment_B", formats, dpi)),
@@ -721,7 +763,10 @@ def generate_individual_plots(
         for plot_type, function, arguments in specifications:
             for path in function(*arguments):
                 records.append(
-                    _manifest_record(path, plot_type, dataset, scenario, str(exec_id))
+                    _manifest_record(
+                        path, plot_type, dataset, scenario, str(exec_id),
+                        training_label_mode=label_mode,
+                    )
                 )
     return records
 
@@ -733,14 +778,23 @@ def generate_aggregate_plots(
     dpi: int,
 ) -> list[dict]:
     records = []
+    data = _with_label_modes(data)
     aggregate = aggregate_results(data)
-    for scenario, group in aggregate.groupby("Scenario", sort=True):
+    for (scenario, label_mode), group in aggregate.groupby(
+        ["Scenario", "Training_Label_Mode"], sort=True
+    ):
         dataset_count = int(group["Dataset_Count"].max())
-        title = f"média macro de {dataset_count} datasets | {scenario}"
-        source_group = data[data["Scenario"] == scenario]
+        title = (
+            f"média macro de {dataset_count} datasets | {scenario} | "
+            f"{_label_mode_title(label_mode)}"
+        )
+        source_group = data[
+            (data["Scenario"] == scenario) & (data["Training_Label_Mode"] == label_mode)
+        ]
         directory = (
             output_dir
             / "aggregated"
+            / label_mode
             / slugify(scenario)
             / selection_slug(source_group)
         )
@@ -755,7 +809,10 @@ def generate_aggregate_plots(
         for plot_type, function, arguments in specifications:
             for path in function(*arguments):
                 records.append(
-                    _manifest_record(path, plot_type, "AGGREGATED", scenario, "macro")
+                    _manifest_record(
+                        path, plot_type, "AGGREGATED", scenario, "macro",
+                        training_label_mode=label_mode,
+                    )
                 )
     return records
 
@@ -769,21 +826,23 @@ def generate_prequential_plots(
     dpi: int,
 ) -> list[dict]:
     records = []
-    group_columns = ["Exec_ID", "Dataset", "Scenario", "Model"]
+    data = _with_label_modes(data)
+    group_columns = ["Exec_ID", "Dataset", "Scenario", "Model", "Training_Label_Mode"]
     config_slug = "-".join(
         f"d{value:g}_b{budget:g}" for value, budget in configs
     ).replace(".", "p")
-    for (exec_id, dataset, scenario, model), group in data.groupby(
+    for (exec_id, dataset, scenario, model, label_mode), group in data.groupby(
         group_columns, sort=True
     ):
         directory = (
             output_dir
             / "prequential"
+            / label_mode
             / slugify(scenario)
             / slugify(dataset)
             / slugify(exec_id)
         )
-        title = f"{dataset} | {scenario}"
+        title = f"{dataset} | {scenario} | {_label_mode_title(label_mode)}"
         paths = plot_prequential(
             group,
             model,
@@ -807,6 +866,7 @@ def generate_prequential_plots(
                     scenario,
                     str(exec_id),
                     model,
+                    training_label_mode=label_mode,
                 )
             )
     return records
@@ -819,6 +879,7 @@ def _manifest_record(
     scenario: str,
     exec_id: str,
     model: str = "ALL",
+    training_label_mode: str = "multiclass",
 ) -> dict:
     return {
         "File": str(path),
@@ -827,6 +888,8 @@ def _manifest_record(
         "Scenario": scenario,
         "Exec_ID": exec_id,
         "Model": model,
+        "Training_Label_Mode": training_label_mode,
+        "Evaluation_Label_Mode": "binary",
     }
 
 
@@ -836,15 +899,17 @@ def print_plan(
     formats: Sequence[str],
     include_prequential: bool,
 ):
-    individual_groups = cumulative.groupby(["Exec_ID", "Dataset", "Scenario"]).ngroups
-    scenarios = cumulative["Scenario"].nunique()
-    model_groups = cumulative.groupby(["Exec_ID", "Dataset", "Scenario", "Model"]).ngroups
+    group_columns = ["Exec_ID", "Dataset", "Scenario", "Training_Label_Mode"]
+    individual_groups = cumulative.groupby(group_columns).ngroups
+    scenarios = cumulative.groupby(["Scenario", "Training_Label_Mode"]).ngroups
+    model_groups = cumulative.groupby(group_columns + ["Model"]).ngroups
     individual_figures = individual_groups * 6 if scope in {"all", "individual"} else 0
     aggregate_figures = scenarios * 6 if scope in {"all", "aggregate"} else 0
     prequential_figures = model_groups if include_prequential else 0
     total_figures = individual_figures + aggregate_figures + prequential_figures
     print(f"Datasets: {cumulative['Dataset'].nunique()}")
     print(f"Cenários de atributos: {scenarios}")
+    print(f"Modos de treinamento: {', '.join(sorted(cumulative['Training_Label_Mode'].unique()))}")
     print(f"Modelos: {', '.join(_model_label(m) for m in _ordered_models(cumulative))}")
     print(f"Exec_IDs selecionados: {', '.join(sorted(cumulative['Exec_ID'].unique()))}")
     print(f"Figuras planejadas: {total_figures}")
@@ -868,6 +933,7 @@ def main(argv: Sequence[str] | None = None):
         datasets=args.datasets,
         models=args.models,
         scenarios=args.scenarios,
+        training_label_mode=args.training_label_mode,
     )
     print_plan(
         cumulative,
@@ -896,6 +962,7 @@ def main(argv: Sequence[str] | None = None):
             datasets=args.datasets,
             models=args.models,
             scenarios=args.scenarios,
+            training_label_mode=args.training_label_mode,
         )
         records.extend(
             generate_prequential_plots(

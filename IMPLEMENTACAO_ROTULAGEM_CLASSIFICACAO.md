@@ -116,7 +116,8 @@ Depois utiliza `DataStreamProcessor.create_stream`:
 stream, targets, features = processor.create_stream(
     df=dataframe,
     target_label_col="Label",
-    binary_label=False,
+    binary_label=True,
+    preserve_label_metadata=True,
     normalize_method="MinMaxScaler",
     return_stream=True,
     imputation_method="mediana",
@@ -633,37 +634,56 @@ predição. Uma instância não selecionada nunca o atualiza.
 Cada instância precisa primeiro ser selecionada. Se for selecionada, seu rótulo
 é entregue imediatamente ou no futuro, conforme o atraso.
 
-## 20. Multiclasse no treinamento e binário na avaliação
+## 20. Treinamento e avaliação binários, famílias preservadas nos gráficos
 
 O fluxo é criado com:
 
 ```python
-binary_label=False
+binary_label=True
+preserve_label_metadata=True
 ```
 
-Os classificadores aprendem as classes originais:
+Os classificadores aprendem somente:
 
 ```text
 0 = BENIGN
-1 = tipo de ataque A
-2 = tipo de ataque B
-3 = tipo de ataque C
-...
+1 = ATTACK (qualquer família)
 ```
 
-Para as métricas, o resultado é convertido para normal contra ataque:
+As métricas usam a mesma tarefa, normal contra ataque:
 
 ```python
 y_true.append(0 if is_normal else 1)
 y_pred.append(0 if prediction == normal_class_idx else 1)
 ```
 
-Consequências:
+As classes originais são armazenadas separadamente:
 
-- o aprendizado do modelo é multiclasse;
+```python
+stream.original_target_names   # ["BENIGN", "DrDoS_DNS", "Syn", ...]
+stream.original_label_indices  # índice original de cada linha do cenário
+stream.training_label_mode     # "binary"
+```
+
+O runner lê esses metadados para preencher `true_labels_multi`. A extração de
+regiões e os nomes nos gráficos usam esse vetor e `original_target_names`.
+Já `learner.train(instance)` recebe o rótulo binário da instância, tanto no
+treinamento inicial quanto na fila de atraso. As famílias não são features e
+não alteram a decisão de consultar um rótulo.
+
+Consequências do protocolo atual:
+
+- o aprendizado do modelo é binário;
 - F1, precisão, recall, FP e FN são binários;
-- prever o tipo errado de ataque ainda conta como detecção de ataque;
-- as métricas atuais não avaliam a identificação exata da família do ataque.
+- o modelo não prevê a família, apenas benigno ou ataque;
+- os gráficos continuam mostrando a família verdadeira em cada região.
+
+`--training-label-mode multiclass` mantém a formulação anterior para comparação.
+Os CSVs identificam os protocolos com `Training_Label_Mode` e
+`Evaluation_Label_Mode`. As agregações e os diretórios dos gráficos os separam.
+Os resultados históricos precisam permanecer identificados como multiclasse;
+é necessário retreinar para produzir resultados binários. O restante do
+protocolo A/B/C, inclusive as cinco sementes e o treinamento inicial, não muda.
 
 ## 21. Métricas por janela
 
@@ -915,7 +935,8 @@ de normalização incremental.
 
 ### 28.6. Métricas binárias não avaliam o tipo exato de ataque
 
-O modelo é multiclasse, mas as métricas atuais medem normal contra ataque.
+O modelo principal é binário e não identifica famílias de ataque. Os tipos
+originais são metadados para interpretar os erros, não previsões do modelo.
 
 ### 28.7. Rótulos entregues depois do final não afetam as métricas
 
@@ -950,7 +971,9 @@ pelo instante de entrega.
 
 ### Métricas multiclasse
 
-Adicionar macro-F1, weighted-F1 e matriz de confusão das famílias de ataque.
+Em um estudo separado com `--training-label-mode multiclass`, adicionar macro-F1,
+weighted-F1 e matriz de confusão das famílias. Essas métricas não se aplicam à
+identificação de famílias pelo classificador binário, que não prevê tais tipos.
 
 ### Pré-processamento incremental
 

@@ -108,6 +108,12 @@ def parse_args():
         default=["full"],
     )
     parser.add_argument("--n-runs", type=int, default=5)
+    parser.add_argument(
+        "--training-label-mode",
+        choices=("binary", "multiclass"),
+        default="binary",
+        help="Training target. Original attack families are preserved for plots.",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--window", type=int, default=100)
     parser.add_argument("--attack-gap-tolerance", type=int, default=1000)
@@ -144,7 +150,7 @@ def resolve_datasets(args) -> list[Path]:
     return datasets
 
 
-def build_stream(dataset_path: Path, selected_features=None):
+def build_stream(dataset_path: Path, selected_features=None, binary_label=True):
     dataframe = pd.read_csv(dataset_path)
     processor = DataStreamProcessor(
         logging=False,
@@ -153,7 +159,8 @@ def build_stream(dataset_path: Path, selected_features=None):
     return processor.create_stream(
         df=dataframe,
         target_label_col="Label",
-        binary_label=False,
+        binary_label=binary_label,
+        preserve_label_metadata=True,
         normalize_method="MinMaxScaler",
         threshold_var=None,
         threshold_corr=None,
@@ -211,6 +218,7 @@ def print_plan(args, datasets, feature_configs):
     print(f"Datasets: {len(datasets)}")
     print(f"Feature sets: {len(feature_configs)}")
     print(f"Models: {', '.join(args.models)}")
+    print(f"Training labels: {args.training_label_mode}; evaluation labels: binary")
     print(f"Logical configurations: {len(configs)}")
     print(f"Unique configurations: {len(unique_configs)}")
     print(f"Model runs: {model_runs}")
@@ -246,6 +254,7 @@ def main():
             stream, targets, features = build_stream(
                 dataset_path,
                 selected_features=selected_features,
+                binary_label=args.training_label_mode == "binary",
             )
             algorithms = build_model_factories(stream.get_schema(), args.models)
             runner = ClassificationLabelingExperimentRunner(

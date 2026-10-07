@@ -32,6 +32,12 @@ Isso separa duas responsabilidades:
 Assim, é possível alterar aparência, filtros e formatos sem gastar tempo
 treinando os modelos novamente.
 
+O protocolo principal agora usa treinamento e avaliação binários. O gerador
+separa os resultados por `Training_Label_Mode`, nos títulos, diretórios e
+agregações. Resultados multiclasse anteriores não são convertidos para binários.
+É necessário executar novamente `run_classification_labeling.py` para gerar
+as novas previsões.
+
 ## 2. Uso rápido
 
 Gerar os gráficos cumulativos de todos os resultados mais recentes:
@@ -39,6 +45,15 @@ Gerar os gráficos cumulativos de todos os resultados mais recentes:
 ```bash
 python plot_classification_labeling_results.py
 ```
+
+Gerar apenas resultados do novo protocolo:
+
+```bash
+python plot_classification_labeling_results.py --training-label-mode binary
+```
+
+Se ainda não houver CSVs binários, esse filtro informa que não encontrou o modo
+solicitado. Sem filtro, os modos disponíveis são processados separadamente.
 
 As imagens são gravadas por padrão em:
 
@@ -69,6 +84,11 @@ arquivos no primeiro nível desse diretório com estes padrões:
 ```
 
 Os arquivos usam `;` como separador.
+
+Os novos CSVs incluem `Training_Label_Mode` (`binary` ou `multiclass`) e
+`Evaluation_Label_Mode` (`binary`). Na leitura dos arquivos históricos deste
+projeto sem essas colunas, são assumidos treinamento multiclasse e avaliação
+binária, sem alterar os arquivos. A deduplicação também distingue os modos.
 
 ### 3.1. CSV cumulativo
 
@@ -105,8 +125,9 @@ dataset. O argumento `--exec-id` controla esse comportamento.
 
 ### `--exec-id latest`
 
-É o padrão. Para cada combinação de `Dataset` e `Scenario`, mantém somente o
-maior `Exec_ID`. Como o executor usa o formato `AAAAMMDD_HHMMSS`, a ordenação
+É o padrão. Para cada combinação de `Dataset`, `Scenario` e
+`Training_Label_Mode`, mantém somente o maior `Exec_ID`. Como o executor usa o
+formato `AAAAMMDD_HHMMSS`, a ordenação
 textual também representa a ordem cronológica.
 
 Exemplo: se existem as execuções `20261001_091516` e `20261001_101354` para o
@@ -133,8 +154,8 @@ duplo.
 ## 5. Gráficos gerados
 
 Por padrão, são produzidas seis figuras para cada combinação de dataset,
-cenário de atributos e execução. Também são produzidas seis figuras agregadas
-para cada cenário de atributos.
+cenário de atributos, modo de treinamento e execução. Também são produzidas
+seis figuras agregadas para cada cenário de atributos e modo de treinamento.
 
 ### 5.1. Desempenho do Experimento A
 
@@ -284,7 +305,7 @@ Cada configuração produz uma imagem em:
 
 ```text
 output/ClassificationLabeling/plots/stream/
-└── <cenário de features>/<dataset>/<execução>/<modelo>/
+└── <binary|multiclass>/<cenário de features>/<dataset>/<execução>/<modelo>/
     └── experiment_<A|B|C>_delay_<D>pct_labels_<B>pct_FP_FN_Labeling.png
 ```
 
@@ -293,6 +314,10 @@ A figura possui três painéis temporais:
 1. FP médio por janela e seu desvio-padrão;
 2. FN médio por janela e seu desvio-padrão;
 3. rótulos consultados, entregues e pendentes por janela.
+
+As famílias de ataque são obtidas dos metadados originais preservados pelo
+processador. O classificador aprende `BENIGN/ATTACK`, mas as faixas continuam
+identificando DNS, Syn e demais tipos reais. O título informa o modo de treino.
 
 As faixas coloridas mostram as regiões e os tipos de ataque. A área cinza
 hachurada identifica o treinamento inicial. Quando existe atraso, uma linha
@@ -378,6 +403,9 @@ Essa diferença é importante:
   experimento;
 - figura agregada: faixa ou barra = desvio entre datasets.
 
+As médias são calculadas separadamente para cada modo de treinamento. Mesmo
+com `--exec-id all`, resultados binários e multiclasse não entram na mesma média.
+
 ## 8. Estrutura de saída
 
 Exemplo:
@@ -386,7 +414,7 @@ Exemplo:
 output/ClassificationLabeling/plots/
 ├── manifest.csv
 ├── individual/
-│   └── Default_FullFeatures/
+│   └── <binary|multiclass>/Default_FullFeatures/
 │       └── Adaptacao_25/
 │           └── 20261001_101354/
 │               └── models_LB-HAT-ARF-HT_<hash>/
@@ -397,7 +425,7 @@ output/ClassificationLabeling/plots/
 │                   ├── errors_experiment_A.png
 │                   └── errors_experiment_B.png
 ├── aggregated/
-│   └── Default_FullFeatures/
+│   └── <binary|multiclass>/Default_FullFeatures/
 │       └── datasets_12_models_LB-HAT-ARF-HT_<hash>/
 │           ├── performance_experiment_A.png
 │           ├── performance_experiment_B.png
@@ -406,7 +434,7 @@ output/ClassificationLabeling/plots/
 │           ├── errors_experiment_A.png
 │           └── errors_experiment_B.png
 └── prequential/
-    └── Default_FullFeatures/
+    └── <binary|multiclass>/Default_FullFeatures/
         └── Adaptacao_25/
             └── 20261001_101354/
                 ├── LB_prequential_<configurações>_smooth5.png
@@ -425,6 +453,10 @@ sobrescreve os gráficos completos.
 ## 9. Manifesto
 
 Cada execução cria `manifest.csv`. Ele usa `;` como separador e registra:
+
+Além da identificação dos arquivos, os novos registros incluem
+`Training_Label_Mode` e `Evaluation_Label_Mode`. Registros antigos já existentes
+no manifesto permanecem intactos.
 
 - `File`: caminho da imagem;
 - `Plot_Type`: tipo do gráfico;
@@ -516,6 +548,7 @@ O diretório de saída é criado automaticamente.
 | `--datasets` | todos | filtra datasets |
 | `--models` | todos | filtra classificadores |
 | `--scenarios` | todos | filtra conjuntos de atributos |
+| `--training-label-mode` | todos, separados | filtra `binary` ou `multiclass` |
 | `--scope` | `all` | individual, aggregate ou ambos |
 | `--formats` | `png` | formatos das imagens |
 | `--dpi` | 300 | resolução raster |
@@ -542,7 +575,7 @@ As chaves cumulativas são:
 
 ```text
 Exec_ID + Dataset + Experiment + Model + Scenario
-+ Delay_Percentage + Label_Budget_Percentage
++ Training_Label_Mode + Delay_Percentage + Label_Budget_Percentage
 ```
 
 No prequencial, `Window_Index` também faz parte da chave.
@@ -596,15 +629,16 @@ memória. Isso é importante ao gerar dezenas de imagens.
 
 ### `generate_individual_plots`
 
-Agrupa por `Exec_ID`, `Dataset` e `Scenario`, isolando cada execução.
+Agrupa por `Exec_ID`, `Dataset`, `Scenario` e `Training_Label_Mode`, isolando
+cada execução e protocolo.
 
 ### `generate_aggregate_plots`
 
-Calcula a média macro e gera uma síntese por `Scenario`.
+Calcula a média macro e gera uma síntese por `Scenario` e `Training_Label_Mode`.
 
 ### `generate_prequential_plots`
 
-Agrupa por execução, dataset, cenário e modelo. Cada figura compara somente as
+Agrupa por execução, dataset, cenário, modelo e modo de treinamento. Cada figura compara somente as
 configurações prequenciais escolhidas.
 
 ## 15. Cuidados de interpretação
