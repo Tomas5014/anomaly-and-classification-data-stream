@@ -1,6 +1,13 @@
 import os
 import re
 import numpy as np
+
+import matplotlib
+
+# This module only writes plots to files.  A non-interactive backend avoids
+# Tkinter lifecycle crashes when experiments run on headless servers.
+matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.ticker import MaxNLocator

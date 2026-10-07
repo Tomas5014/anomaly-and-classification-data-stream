@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +47,24 @@ def cumulative_row(**overrides):
 
 
 class ClassificationLabelingPlotsTest(unittest.TestCase):
+    def test_results_plots_selects_non_interactive_backend(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import src.Results.Plots; "
+                    "import matplotlib; "
+                    "print(matplotlib.get_backend())"
+                ),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.stdout.strip().lower(), "agg")
+
     def test_parse_prequential_configs(self):
         self.assertEqual(
             parse_prequential_configs(["0:100", "5:10", "5:10"]),
