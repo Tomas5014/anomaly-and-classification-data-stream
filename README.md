@@ -146,8 +146,10 @@ Consulte:
 - [IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md](IMPLEMENTACAO_ROTULAGEM_CLASSIFICACAO.md)
   para entender detalhadamente Random Sampling, ausência e atraso de rótulos;
 - [GRAFICOS_CLASSIFICACAO.md](GRAFICOS_CLASSIFICACAO.md) para gerar e interpretar
-  gráficos cumulativos, agregados e prequenciais sem retreinar os modelos.
-
+  gráficos cumulativos, agregados e prequenciais sem retreinar os modelos;
+- [TABELAS_RESULTADOS_CLASSIFICACAO.md](TABELAS_RESULTADOS_CLASSIFICACAO.md) para
+  consultar todos os resultados A/B/C das execuções binária e multiclasse,
+  comparações, custos de rotulagem e planilhas CSV consolidadas.
 
 
 
