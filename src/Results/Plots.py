@@ -598,7 +598,7 @@ class Plots:
                     hatch="//",
                     edgecolor="#777777",
                     linewidth=0.0,
-                    label="Treinamento inicial" if axis_index == 0 else None,
+                    label="Treinamento inicial" if axis_index < 2 else None,
                     zorder=0,
                 )
                 axis.axvline(
@@ -616,7 +616,7 @@ class Plots:
                     linestyle=":",
                     label=(
                         "Primeiro retorno possível após o atraso"
-                        if axis_index == 0
+                        if axis_index < 2
                         else None
                     ),
                     zorder=2,
@@ -625,7 +625,7 @@ class Plots:
                 axis,
                 attack_regions,
                 alpha=0.24,
-                show_legend=axis_index == 0,
+                show_legend=axis_index < 2,
                 show_labels=axis_index == 0,
             )
             self._pad_count_axis(axis)

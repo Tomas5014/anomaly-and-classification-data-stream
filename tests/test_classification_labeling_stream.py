@@ -139,14 +139,28 @@ class ClassificationLabelingStreamTest(unittest.TestCase):
                             ax_fp, ax_fn, ax_labels = fig.axes[:3]
                             for axis in (ax_fp, ax_fn, ax_labels):
                                 self.assertIsNotNone(axis.get_legend())
+                            normalized_labels = []
                             for axis, metric, other_metric in ((ax_fp, "FP", "FN"), (ax_fn, "FN", "FP")):
                                 labels = [text.get_text() for text in axis.get_legend().get_texts()]
                                 self.assertIn(f"{metric} médio após o aquecimento", labels)
                                 self.assertNotIn(f"{other_metric} médio após o aquecimento", labels)
                                 self.assertIn("Desvio-padrão", labels)
                                 self.assertEqual("Aquecimento (diagnóstico)" in labels, warmup_recorded)
+                                for contextual_label in ("Treinamento inicial", "DNS", "SYN"):
+                                    self.assertIn(contextual_label, labels)
+                                self.assertEqual(
+                                    "Primeiro retorno possível após o atraso" in labels,
+                                    delay > 0,
+                                )
+                                normalized_labels.append([
+                                    label.replace(f"{metric} médio", "Erro médio")
+                                    for label in labels
+                                ])
+                            # Both panels must be independently readable, with the
+                            # same contextual entries in exactly the same order.
+                            self.assertEqual(normalized_labels[0], normalized_labels[1])
                             # Keep each legend below its panel and above the next panel,
-                            # including the larger FP legend with two attack families.
+                            # including the two-row FP and FN legends with attack families.
                             fig.set_dpi(dpi)
                             fig.canvas.draw()
                             renderer = fig.canvas.get_renderer()
