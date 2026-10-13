@@ -113,6 +113,48 @@ class ClassificationLabelingStreamTest(unittest.TestCase):
         finally:
             plt.close(fig)
 
+    def test_individual_fp_and_fn_have_separate_legends_between_their_panels(self):
+        suite = self.suite(experiments=("A",))
+        with tempfile.TemporaryDirectory() as directory:
+            for delay in (0, 10):
+                row = suite["cumulative"][suite["cumulative"].Delay_Percentage == delay].iloc[0]
+                windows = suite["prequential"][suite["prequential"].Delay_Percentage == delay]
+                for warmup_recorded in (True, False):
+                    history = stream_history(
+                        row, windows, suite["warmup"] if warmup_recorded else pd.DataFrame(),
+                    )
+                    for dpi in (72, 150):
+                        with self.subTest(delay=delay, warmup=warmup_recorded, dpi=dpi):
+                            figures = []
+                            with patch("matplotlib.figure.Figure.savefig", autospec=True,
+                                       side_effect=lambda fig, *args, **kwargs: figures.append(fig)):
+                                Plots(["BENIGN", "DNS", "SYN"]).plot_labeling_fp_fn(
+                                    "AdaptiveRandomForest", history,
+                                    attack_regions=[(2, 3, 1), (6, 7, 2)],
+                                    title="Consistência_25", delay_percentage=delay,
+                                    output_dir=directory, dpi=dpi,
+                                )
+                            self.assertEqual(len(figures), 1)
+                            fig = figures[0]
+                            ax_fp, ax_fn, ax_labels = fig.axes[:3]
+                            for axis in (ax_fp, ax_fn, ax_labels):
+                                self.assertIsNotNone(axis.get_legend())
+                            for axis, metric, other_metric in ((ax_fp, "FP", "FN"), (ax_fn, "FN", "FP")):
+                                labels = [text.get_text() for text in axis.get_legend().get_texts()]
+                                self.assertIn(f"{metric} médio após o aquecimento", labels)
+                                self.assertNotIn(f"{other_metric} médio após o aquecimento", labels)
+                                self.assertIn("Desvio-padrão", labels)
+                                self.assertEqual("Aquecimento (diagnóstico)" in labels, warmup_recorded)
+                            # Keep each legend below its panel and above the next panel,
+                            # including the larger FP legend with two attack families.
+                            fig.set_dpi(dpi)
+                            fig.canvas.draw()
+                            renderer = fig.canvas.get_renderer()
+                            for axis, next_axis in ((ax_fp, ax_fn), (ax_fn, ax_labels)):
+                                legend = axis.get_legend().get_window_extent(renderer)
+                                self.assertLess(legend.y1, axis.get_window_extent(renderer).y0)
+                                self.assertGreater(legend.y0, next_axis.get_window_extent(renderer).y1)
+
     def test_comparison_groups_have_four_delays_six_budgets_and_twelve_c_panels(self):
         suite = self.suite()
         figures = []

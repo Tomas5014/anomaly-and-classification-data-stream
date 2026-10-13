@@ -323,6 +323,13 @@ A figura possui três painéis temporais:
 2. FN médio por janela e seu desvio-padrão;
 3. rótulos consultados, entregues e pendentes por janela.
 
+Os painéis de FP e FN têm legendas próprias, abaixo de cada um, identificando
+a média após o aquecimento, o aquecimento diagnóstico quando registrado e o
+desvio-padrão. As faixas de ataque, o treinamento inicial e a marca do primeiro
+retorno possível são identificados na legenda do primeiro painel e valem para
+o mesmo eixo temporal nos demais. O painel de rotulagem mantém sua legenda
+separada para consultas, entregas e pendências.
+
 As famílias de ataque são obtidas dos metadados originais preservados pelo
 processador. O classificador aprende `BENIGN/ATTACK`, mas as faixas continuam
 identificando DNS, Syn e demais tipos reais. O título informa o modo de treino.

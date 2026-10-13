@@ -673,16 +673,19 @@ class Plots:
             y=0.995,
         )
 
-        top_handles, top_labels = ax_fp.get_legend_handles_labels()
-        ax_fp.legend(
-            top_handles,
-            top_labels,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.13),
-            ncol=min(5, max(1, len(top_handles))),
-            fontsize=9,
-            frameon=False,
-        )
+        # Both error panels need their own legend: the FP legend cannot name
+        # the FN curve, even though their colors and diagnostic phases match.
+        for axis in (ax_fp, ax_fn):
+            handles, labels = axis.get_legend_handles_labels()
+            axis.legend(
+                handles,
+                labels,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.13),
+                ncol=min(5, max(1, len(handles))),
+                fontsize=9,
+                frameon=False,
+            )
         label_handles, label_labels = ax_labels.get_legend_handles_labels()
         pending_handles, pending_labels = ax_pending.get_legend_handles_labels()
         ax_labels.legend(
