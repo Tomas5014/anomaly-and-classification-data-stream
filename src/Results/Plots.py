@@ -407,19 +407,26 @@ class Plots:
         warmup_note = ("Aquecimento: previsão antes da atualização, 100% de rótulos sem atraso"
                        if warmup_recorded else "Aquecimento não registrado nesta execução histórica")
         window = int(first.get("window_sizes", [0])[0])
+        height = fig.get_figheight()
+        header_gap = 0.10 * fig.dpi
         heading = fig.suptitle(
             f"{model_name} — {title} — Experimento {experiment}\n"
             f"{scenario_name} | treino {mode_name} / avaliação binária | janela {window} | "
             f"{first.get('run_count', 1)} repetições | média ± DP\n{warmup_note}", fontsize=12,
+            y=1 - 0.10 / height,
         )
         heading.set_in_layout(False)
-        height = fig.get_figheight()
+        # Measure text instead of assuming a fixed title height: figure-relative
+        # offsets previously made C's tall layout overlap the third header line.
+        renderer = fig.canvas.get_renderer()
+        legend_top = (heading.get_window_extent(renderer).y0 - header_gap) / fig.bbox.height
         handles, labels = axes[0, 0].get_legend_handles_labels()
         legend = fig.legend(handles, labels, loc="upper center",
-                            bbox_to_anchor=(0.5, 0.99 - 0.67 / height),
+                            bbox_to_anchor=(0.5, legend_top), borderaxespad=0,
                             ncol=min(7, len(handles)), fontsize=9, frameon=False)
         legend.set_in_layout(False)
-        fig.tight_layout(rect=(0, 0, 1, 1 - 1.05 / height))
+        panels_top = (legend.get_window_extent(renderer).y0 - header_gap) / fig.bbox.height
+        fig.tight_layout(rect=(0, 0, 1, panels_top))
         safe = lambda value: re.sub(r"[^\w.-]+", "_", str(value)).strip("_") or "results"
         directory = os.path.join(str(output_dir), "plots", "stream_comparisons", safe(mode),
                                  safe(scenario_name), safe(title), safe(exec_id), safe(model_name))

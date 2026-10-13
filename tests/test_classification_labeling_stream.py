@@ -139,6 +139,57 @@ class ClassificationLabelingStreamTest(unittest.TestCase):
         self.assertTrue(all(len(axis.get_legend_handles_labels()[1]) == 5 for axis in figures[2].axes))
         self.assertTrue(all(axis.get_ylim()[0] < 0 for fig in figures for axis in fig.axes))
 
+    def test_comparison_header_legend_and_panel_titles_do_not_overlap(self):
+        suite = self.suite()
+        with tempfile.TemporaryDirectory() as directory:
+            for experiment in ("A", "B", "C"):
+                rows = suite["cumulative"][suite["cumulative"].Experiment == experiment]
+                for warmup_recorded in (True, False):
+                    configurations = []
+                    for _, row in rows.iterrows():
+                        windows = suite["prequential"][
+                            (suite["prequential"].Experiment == experiment)
+                            & (suite["prequential"].Delay_Percentage == row.Delay_Percentage)
+                            & (suite["prequential"].Label_Budget_Percentage == row.Label_Budget_Percentage)
+                        ]
+                        configurations.append({
+                            "delay_percentage": row.Delay_Percentage,
+                            "label_budget_percentage": row.Label_Budget_Percentage,
+                            "data": stream_history(
+                                row, windows, suite["warmup"] if warmup_recorded else pd.DataFrame(),
+                            ),
+                        })
+                    for dpi in (72, 150):
+                        with self.subTest(experiment=experiment, warmup=warmup_recorded, dpi=dpi):
+                            figures = []
+                            with patch("matplotlib.figure.Figure.savefig", autospec=True,
+                                       side_effect=lambda fig, *args, **kwargs: figures.append(fig)):
+                                Plots(["BENIGN", "ATTACK"]).plot_labeling_comparison(
+                                    "AdaptiveRandomForest", configurations,
+                                    title="Consistência_25", experiment=experiment,
+                                    output_dir=directory, dpi=dpi,
+                                )
+                            self.assertEqual(len(figures), 1)
+                            fig = figures[0]
+                            # Match the export renderer even though savefig itself is mocked.
+                            fig.set_dpi(dpi)
+                            fig.canvas.draw()
+                            renderer = fig.canvas.get_renderer()
+                            heading = fig._suptitle.get_window_extent(renderer)
+                            legend = fig.legends[0].get_window_extent(renderer)
+                            heading_gap = heading.y0 - legend.y1
+                            self.assertGreater(
+                                heading_gap, 0,
+                                f"Header overlaps legend by {-heading_gap:.2f} pixels",
+                            )
+                            for axis in fig.axes[:2]:
+                                panel_title = axis.title.get_window_extent(renderer)
+                                panel_gap = legend.y0 - panel_title.y1
+                                self.assertGreater(
+                                    panel_gap, 0,
+                                    f"Legend overlaps first-row panel title by {-panel_gap:.2f} pixels",
+                                )
+
     def test_historical_warmup_is_not_invented_or_borrowed_from_another_execution(self):
         suite = self.suite(experiments=("A",))
         row = suite["cumulative"].iloc[0]
