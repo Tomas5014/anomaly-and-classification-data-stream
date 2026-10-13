@@ -64,7 +64,7 @@ class ClassificationLabelingStreamTest(unittest.TestCase):
         self.assertTrue((suite["warmup"].Instance < 4).all())
         self.assertTrue((suite["prequential"].Window_Start >= 4).all())
 
-    def test_stairs_cover_the_actual_partial_windows_and_leave_bottom_padding(self):
+    def test_lines_use_window_end_indices_and_leave_bottom_padding(self):
         suite = self.suite(experiments=("A",))
         row = suite["cumulative"].iloc[0]
         windows = suite["prequential"][suite["prequential"].Delay_Percentage == row.Delay_Percentage]
@@ -73,10 +73,43 @@ class ClassificationLabelingStreamTest(unittest.TestCase):
         try:
             Plots._draw_count_windows(axis, history, "fn", "gray", "warmup", warmup=True)
             Plots._draw_count_windows(axis, history, "fn", "blue", "evaluation")
-            np.testing.assert_array_equal(axis.patches[0].get_data().edges, [-0.5, 2.5, 3.5])
-            np.testing.assert_array_equal(axis.patches[1].get_data().edges, [3.5, 6.5, 7.5])
+            self.assertEqual(len(axis.lines), 2)  # never connect across phases
+            warmup_line, evaluation_line = axis.lines
+            np.testing.assert_array_equal(warmup_line.get_xdata(), [2, 3])
+            np.testing.assert_array_equal(evaluation_line.get_xdata(), [6, 7])
+            np.testing.assert_array_equal(warmup_line.get_ydata(), history["warmup"]["fn_mean"])
+            np.testing.assert_array_equal(evaluation_line.get_ydata(), history["fn_mean"])
+            for line in axis.lines:
+                self.assertEqual(line.get_marker(), "o")
+                self.assertEqual(line.get_drawstyle(), "default")
+            self.assertEqual(warmup_line.get_linestyle(), "--")
+            self.assertEqual(evaluation_line.get_linestyle(), "-")
+            self.assertFalse(axis.patches)  # no stairs/step patches
             Plots._pad_count_axis(axis)
             self.assertLess(axis.get_ylim()[0], 0)
+        finally:
+            plt.close(fig)
+
+    def test_partial_single_window_still_has_a_visible_marker(self):
+        data = {"initial_training_instances": 2,
+                "warmup": {"instances": [1], "window_sizes": [2],
+                           "fp_mean": [0], "fp_std": [0]}}
+        fig, axis = plt.subplots()
+        try:
+            Plots._draw_count_windows(axis, data, "fp", "gray", "warmup", warmup=True)
+            np.testing.assert_array_equal(axis.lines[0].get_xdata(), [1])
+            np.testing.assert_array_equal(axis.lines[0].get_ydata(), [0])
+            self.assertEqual(axis.lines[0].get_marker(), "o")
+        finally:
+            plt.close(fig)
+
+    def test_line_plot_keeps_window_alignment_validation(self):
+        data = {"initial_training_instances": 4, "instances": [6, 7],
+                "window_sizes": [2, 1], "fn_mean": [1, 0], "fn_std": [0, 0]}
+        fig, axis = plt.subplots()
+        try:
+            with self.assertRaisesRegex(ValueError, "nonconsecutive"):
+                Plots._draw_count_windows(axis, data, "fn", "blue", "evaluation")
         finally:
             plt.close(fig)
 

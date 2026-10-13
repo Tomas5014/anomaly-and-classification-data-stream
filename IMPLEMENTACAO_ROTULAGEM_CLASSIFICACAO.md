@@ -755,9 +755,17 @@ Exemplo com 3.775 instâncias de aquecimento e janela de 100:
 
 `Instance` é o último índice da janela; `Window_Start` é o primeiro;
 `Window_Instances` é seu tamanho real. No gráfico, o valor é desenhado como um
-patamar entre `Window_Start - 0,5` e `Instance + 0,5`. A meia unidade delimita
-as células dos índices inteiros: não é atraso ou antecipação do erro. O valor
-é uma contagem na janela inteira, não uma localização exata de cada erro.
+ponto em `Instance`, conectado aos demais pontos da mesma fase por uma linha,
+mantendo o estilo anterior de visualização. Assim, o ponto em 3.874 representa
+os erros das instâncias 3.775–3.874, não somente os da instância 3.874. Os
+segmentos entre pontos são guias visuais: não indicam a localização exata de
+cada erro nem medições adicionais entre janelas.
+
+Os índices vão de zero a `N - 1`. A primeira janela diagnóstica inclui a
+instância zero, mas seu primeiro marcador fica em 99 no exemplo de janela
+100. A última janela parcial é preservada em cada fase. Aquecimento e
+avaliação são desenhados como séries separadas, sem conectar ou interpolar
+seus pontos através da fronteira entre as fases.
 
 O aquecimento aparece em cinza tracejado; a avaliação usa uma linha contínua.
 As faixas representam média ± um desvio-padrão entre as repetições, com o limite

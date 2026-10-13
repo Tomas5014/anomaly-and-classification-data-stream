@@ -372,8 +372,14 @@ Durante o experimento, `--plots` chama `plot_metrics`, `plot_labeling_fp_fn` e
 rótulos consultados, entregues e pendentes por janela. O título também registra
 atraso, orçamento nominal, consulta efetiva, treinamento inicial e repetições.
 
-`_draw_count_windows` posiciona cada contagem no intervalo real da janela,
-incluindo a última janela parcial de cada fase. `_pad_count_axis` acrescenta
+`_draw_count_windows` posiciona cada marcador no índice final da janela
+(`Instance`) e conecta os pontos da mesma fase por linhas, como no estilo
+anterior. Cada ponto resume a janela inteira, inclusive a última janela
+parcial; os segmentos são guias visuais, não localizações exatas dos erros.
+Os índices vão de zero a `N - 1`: o aquecimento contabiliza previsões desde
+zero, embora seu primeiro marcador fique ao final da primeira janela.
+Aquecimento e avaliação são séries separadas, sem interpolação da fronteira.
+`_pad_count_axis` acrescenta
 espaço abaixo de zero, sem alterar os dados. `plot_labeling_comparison` reúne
 as configurações de A e B em dois painéis (FP/FN); C usa uma linha de painéis
 por orçamento, com os quatro atrasos sobrepostos.

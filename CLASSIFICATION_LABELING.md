@@ -75,7 +75,13 @@ python run_classification_labeling.py \
 Add `--plots` to generate one detailed stream figure per model and labeling
 configuration. Each figure shows FP, FN, attack regions, initial training, and
 the number of queried, delivered, and pending labels in every window.
-FP/FN use steps spanning their actual windows, including diagnostic warmup.
+FP/FN retain the original line-and-marker style, now also showing diagnostic
+warmup. Each marker is placed at its window's final index (`Instance`) and
+summarizes that entire window, including partial windows. Connecting lines are
+visual guides, not the exact positions of individual errors. Scenario indices
+run from zero to `N - 1`; warmup includes predictions from index zero, although
+its first marker appears at the end of the first window. Warmup and evaluation
+are separate series, with no line interpolating across their boundary.
 Comparison figures also overlay A's four delays and B's six budgets; C shows
 one row per budget with four delays per panel. These are saved under
 `plots/stream_comparisons/<training mode>/`. All count axes have padding below zero.

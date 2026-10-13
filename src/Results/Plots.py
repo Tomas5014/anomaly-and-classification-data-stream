@@ -317,7 +317,11 @@ class Plots:
     @staticmethod
     def _draw_count_windows(axis, data, metric, color, label, *, warmup=False,
                             std_label=None):
-        """Draw an aggregate on its actual interval, including partial windows."""
+        """Plot each window at its end index, as in the original line charts.
+
+        Keep phases separate: connecting markers is only a visual guide, not
+        the location of individual errors or interpolation across warmup.
+        """
         source = data.get("warmup", {}) if warmup else data
         ends = np.asarray(source.get("instances", []), dtype=float)
         if not ends.size:
@@ -333,12 +337,12 @@ class Plots:
                 or (sizes <= 0).any() or (means < 0).any() or (stds < 0).any()
                 or starts[0] != first or not np.array_equal(starts[1:], ends[:-1] + 1)):
             raise ValueError("Invalid or nonconsecutive count windows")
-        edges = np.r_[starts - 0.5, ends[-1] + 0.5]
-        axis.stairs(means, edges, color=color, linewidth=1.8,
-                    linestyle="--" if warmup else "-", label=label, baseline=None, zorder=4)
+        axis.plot(ends, means, color=color, linewidth=2.2,
+                  linestyle="--" if warmup else "-", marker="o", markersize=4,
+                  label=label, zorder=4)
         lower, upper = np.maximum(0, means - stds), means + stds
-        axis.fill_between(edges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]],
-                          step="post", color=color, alpha=0.13, label=std_label, zorder=3)
+        axis.fill_between(ends, lower, upper, color=color, alpha=0.18,
+                          label=std_label, zorder=3)
 
     def plot_labeling_comparison(
         self, model_name, configurations, attack_regions=None,

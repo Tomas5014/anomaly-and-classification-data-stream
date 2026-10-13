@@ -336,7 +336,7 @@ O título registra experimento, atraso percentual e em instâncias, orçamento
 nominal, consulta efetiva, tamanho do treinamento inicial, janela, número de
 execuções, total consultado, total entregue durante o fluxo e total liberado
 depois do fim. Diferentemente dos gráficos acumulados `errors_experiment_A/B`,
-esta figura mostra em qual trecho do fluxo cada erro ocorreu.
+esta figura mostra em quais janelas do fluxo os erros foram contabilizados.
 
 Nas novas execuções, os dois primeiros painéis mostram também o aquecimento,
 desde o índice zero: linha cinza tracejada, com previsão antes do treinamento
@@ -344,10 +344,18 @@ da própria instância. Esse trecho permanece fora dos resultados cumulativos.
 O terceiro painel informa que, durante o aquecimento, todos os rótulos são
 imediatos; suas curvas e os totais do título continuam sendo pós-aquecimento.
 
-FP/FN são desenhados em patamares que cobrem a janela inteira, inclusive as
-janelas parciais. Por exemplo, um FN da janela 3.775–3.874 ocupa esse intervalo,
-sem interpolação diagonal com a janela anterior. A região de aquecimento
-termina exatamente na fronteira entre as instâncias 3.774 e 3.775.
+FP/FN mantêm o estilo anterior: linhas com marcadores nos índices finais das
+janelas (`Instance`). Cada ponto resume os erros da janela que termina naquele
+índice, inclusive quando ela é parcial. Por exemplo, o ponto em 3.874 resume
+as instâncias 3.775–3.874; ele não significa que todos os erros ocorreram na
+instância 3.874. Os segmentos entre pontos são apenas guias visuais, não uma
+localização exata de cada erro nem novas medições entre janelas.
+
+Os índices do cenário vão de zero a `N - 1`. O aquecimento e a avaliação são
+séries separadas, sem segmento interpolando a fronteira entre elas. A área de
+aquecimento termina exatamente entre as instâncias 3.774 e 3.775 no exemplo.
+O primeiro marcador de aquecimento fica ao final da primeira janela (99 para
+janela 100), embora essa janela contabilize previsões desde a instância zero.
 
 Os eixos de contagem recebem uma margem inferior abaixo de zero, inclusive o
 eixo secundário de pendências. Esse espaço é apenas visual: não existem
