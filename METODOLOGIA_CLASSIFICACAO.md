@@ -34,8 +34,11 @@ O protocolo possui duas fases:
    realiza a predição e depois pode ser atualizado quando o rótulo estiver
    disponível.
 
-As instâncias do treinamento inicial não participam das métricas. Isso evita que
-amostras já vistas no treinamento sejam contabilizadas como previsões do modelo.
+As instâncias do treinamento inicial não participam das métricas cumulativas
+nem das janelas de avaliação. Para visualizar a adaptação inicial, são feitas
+predições antes de treinar cada uma dessas instâncias, registrando FP/FN em
+janelas diagnósticas separadas. Esses registros não alteram o orçamento ou o
+atraso: todas as instâncias iniciais continuam sendo treinadas imediatamente.
 
 ### 2.1. Identificação do treinamento inicial
 
@@ -251,14 +254,20 @@ Também são auditados por janela:
 Por padrão, os resultados ficam em `output/ClassificationLabeling`:
 
 - `*_cumulative.csv`: uma linha por experimento, configuração e modelo;
-- `*_prequential.csv`: uma linha por janela, configuração e modelo.
+- `*_prequential.csv`: uma linha por janela de avaliação, configuração e modelo;
+- `*_warmup.csv`: uma linha por janela diagnóstica de aquecimento, configuração
+  e modelo; não entra nos resultados cumulativos.
 
 Os arquivos usam `;` como separador. A opção `--plots` também gera gráficos de
 F1, precisão e recall e uma figura detalhada com FP/FN, regiões e nomes dos
 ataques e dinâmica da rotulagem. Esses gráficos ficam em
-`output/ClassificationLabeling/plots/stream`.
+`output/ClassificationLabeling/plots/stream`. Os comparativos A/B/C ficam em
+`output/ClassificationLabeling/plots/stream_comparisons`: A sobrepõe os quatro
+atrasos, B sobrepõe os seis orçamentos e C separa os seis orçamentos em painéis,
+com os quatro atrasos em cada um. Cada linha mantém a média e o desvio-padrão
+das repetições da própria configuração.
 
-Os dois CSVs incluem `Training_Label_Mode` (`binary` ou `multiclass`) e
+Os três CSVs incluem `Training_Label_Mode` (`binary` ou `multiclass`) e
 `Evaluation_Label_Mode` (`binary`). Os nomes novos contêm `binaryTraining` ou
 `multiclassTraining`, além do identificador da execução. Os arquivos históricos
 permanecem intactos e continuam representando o treinamento multiclasse; não é

@@ -89,7 +89,10 @@ class ClassificationLabelingTest(unittest.TestCase):
         self.assertEqual(result["initial_training_instances"], 4)
         self.assertEqual(result["evaluation_instances"], 4)
         self.assertEqual(learner.trained_indices, [0, 1, 2, 3])
-        self.assertEqual(learner.predicted_indices, [4, 5, 6, 7])
+        self.assertEqual(learner.predicted_indices, list(range(8)))
+        self.assertEqual(result["y_true"], [0, 0, 1, 1])
+        self.assertEqual(result["warmup"]["instances"], [3])
+        self.assertEqual(result["warmup"]["fn"], [2])
         self.assertEqual(result["queried_instances"], 0)
 
     def test_zero_delay_and_full_budget_match_test_then_train(self):
@@ -202,7 +205,8 @@ class ClassificationLabelingTest(unittest.TestCase):
 
         self.assertEqual(result["initial_training_instances"], 5)
         self.assertEqual(learner.trained_indices, [0, 1, 2, 3, 4])
-        self.assertEqual(learner.predicted_indices[0], 5)
+        self.assertEqual(learner.predicted_indices, list(range(9)))
+        self.assertEqual(len(result["y_true"]), 4)
 
     def test_invalid_initial_scenario_fails_clearly(self):
         with self.assertRaisesRegex(ValueError, "start with a benign block"):
@@ -263,10 +267,16 @@ class ClassificationLabelingTest(unittest.TestCase):
                 )
                 self.assertIn("binaryTraining", suite["paths"]["cumulative"])
                 self.assertTrue(Path(suite["paths"]["prequential"]).is_file())
-            for frame in (suite["cumulative"], suite["prequential"]):
+                self.assertTrue(Path(suite["paths"]["warmup"]).is_file())
+            for frame in (suite["cumulative"], suite["prequential"], suite["warmup"]):
                 self.assertEqual(set(frame.Training_Label_Mode), {"binary"})
                 self.assertEqual(set(frame.Evaluation_Label_Mode), {"binary"})
-            self.assertEqual(plots_type.call_count, 4)
+            self.assertEqual(plots_type.call_count, 5)
+            self.assertEqual(plots_type.return_value.plot_labeling_fp_fn.call_count, 4)
+            self.assertEqual(plots_type.return_value.plot_labeling_comparison.call_count, 1)
+            comparison = plots_type.return_value.plot_labeling_comparison.call_args
+            self.assertEqual(comparison.kwargs["experiment"], "A")
+            self.assertEqual([config["delay_percentage"] for config in comparison.args[1]], [0, 1, 5, 10])
             for call in plots_type.call_args_list:
                 self.assertEqual(call.args[0], ["BENIGN", "DNS", "Syn"])
 

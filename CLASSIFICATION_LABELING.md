@@ -20,6 +20,9 @@ code. The historical notebook is not modified by this migration.
 Every run treats the first benign block and the immediately following attack
 region as initial supervised training. These instances are trained immediately,
 without missing or delayed labels, and are excluded from evaluation metrics.
+Predictions are now made before each initial update to visualize warmup FP/FN.
+These diagnostic windows are saved separately in `*_warmup.csv`; cumulative
+metrics, evaluation windows, sampling budgets, and delayed delivery exclude them.
 Benign interruptions of up to 1,000 instances do not split an attack region.
 This matches the region convention already used by the project plots and keeps
 the full first attack window in the timestamp-sorted scenarios.
@@ -72,6 +75,10 @@ python run_classification_labeling.py \
 Add `--plots` to generate one detailed stream figure per model and labeling
 configuration. Each figure shows FP, FN, attack regions, initial training, and
 the number of queried, delivered, and pending labels in every window.
+FP/FN use steps spanning their actual windows, including diagnostic warmup.
+Comparison figures also overlay A's four delays and B's six budgets; C shows
+one row per budget with four delays per panel. These are saved under
+`plots/stream_comparisons/<training mode>/`. All count axes have padding below zero.
 
 Run `python run_classification_labeling.py --help` for dataset, feature-set,
 window, output, plot, seed, and attack-gap options.
@@ -119,7 +126,7 @@ suite = runner.run_suite(
 print(suite["paths"])
 ```
 
-`run_suite` saves cumulative and prequential CSV files under
+`run_suite` saves cumulative, evaluation-prequential, and warmup-diagnostic CSV files under
 `output/ClassificationLabeling`. Equivalent configurations shared by experiments
 A, B, and C are executed once and copied into each experiment's result rows.
 Set `generate_plots=True` to create F1, precision, and recall plots plus a
@@ -128,7 +135,7 @@ figures are written below `output/ClassificationLabeling/plots/stream`. The
 prequential CSV also stores queried, delivered, and pending-label mean and
 standard-deviation columns for each window.
 
-Both CSVs include `Training_Label_Mode` and `Evaluation_Label_Mode`.
+All three CSVs include `Training_Label_Mode` and `Evaluation_Label_Mode`.
 Filenames include `binaryTraining` or `multiclassTraining`. Detailed plots are
 separated below `plots/stream/<training mode>/`; summary plots are also grouped
 by training mode. The plot loader treats legacy project CSVs without these

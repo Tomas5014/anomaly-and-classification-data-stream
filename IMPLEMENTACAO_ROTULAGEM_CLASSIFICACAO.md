@@ -225,19 +225,30 @@ Durante essa fase:
 - não existe Random Sampling;
 - não existe atraso;
 - todas as instâncias atualizam o modelo imediatamente;
-- essas instâncias não participam das métricas.
+- essas instâncias não participam das métricas cumulativas nem das janelas de
+  avaliação; seus FP/FN são registrados separadamente, apenas para diagnóstico.
 
 O laço executa:
 
 ```python
 if stream_index < initial_training_end:
+    prediction = learner.predict(instance)  # antes de mostrar o rótulo ao modelo
+    registrar_fp_fn_do_aquecimento(instance, prediction)
     learner.train(instance)
     initial_training_instances += 1
     continue
 ```
 
-O `continue` impede que a instância de treinamento inicial seja prevista ou
-submetida às regras de rotulagem.
+O registro acima é uma representação simplificada do bloco em `prequential_test`.
+A predição ocorre antes da atualização da própria instância, evitando uma
+visualização artificialmente otimista do aquecimento. Quando o classificador
+ainda não retorna uma classe (`None`), a predição é tratada como benigna,
+seguindo a mesma convenção da etapa de avaliação.
+
+O `continue` impede que esses registros entrem em `y_true`/`y_pred`, na fila de
+atraso ou no sorteio do orçamento. A supervisão do aquecimento continua sendo
+100%, imediata e independente do experimento escolhido. Consultas, entregas e
+pendências exportadas continuam se referindo somente à fase pós-aquecimento.
 
 ### 8.1. Identificação da primeira região de ataque
 
@@ -534,6 +545,8 @@ para cada índice t:
     instância = próxima instância
 
     se t pertence ao treinamento inicial:
+        prever antes de treinar
+        registrar FP/FN em uma janela diagnóstica separada
         treinar imediatamente
         continuar
 
@@ -722,6 +735,55 @@ Elas permitem distinguir falta de consulta de um rótulo que foi consultado,
 mas ainda não chegou por causa do atraso.
 
 As métricas cumulativas usam todas as previsões da região de avaliação.
+
+### 21.1. Janelas de aquecimento e posicionamento dos FP/FN
+
+As janelas diagnósticas começam no índice zero do cenário. Elas têm o mesmo
+tamanho nominal das janelas de avaliação, mas são fechadas ao terminar o
+aquecimento, mesmo que a última seja parcial. A avaliação mantém seu próprio
+alinhamento original: começa imediatamente depois do aquecimento. Nenhuma
+janela mistura as duas fases.
+
+Exemplo com 3.775 instâncias de aquecimento e janela de 100:
+
+| Fase | Intervalo inclusivo, índice começando em zero | Tamanho |
+|---|---|---:|
+| Aquecimento: primeira janela | 0–99 | 100 |
+| Aquecimento: última janela | 3.700–3.774 | 75 |
+| Avaliação: primeira janela | 3.775–3.874 | 100 |
+| Avaliação: segunda janela | 3.875–3.974 | 100 |
+
+`Instance` é o último índice da janela; `Window_Start` é o primeiro;
+`Window_Instances` é seu tamanho real. No gráfico, o valor é desenhado como um
+patamar entre `Window_Start - 0,5` e `Instance + 0,5`. A meia unidade delimita
+as células dos índices inteiros: não é atraso ou antecipação do erro. O valor
+é uma contagem na janela inteira, não uma localização exata de cada erro.
+
+O aquecimento aparece em cinza tracejado; a avaliação usa uma linha contínua.
+As faixas representam média ± um desvio-padrão entre as repetições, com o limite
+inferior visual recortado em zero. Não há suavização ou arredondamento das
+contagens médias de FP/FN.
+
+### 21.2. Arquivo diagnóstico separado
+
+A execução grava três arquivos com o mesmo prefixo e `Exec_ID`:
+
+| Arquivo | Conteúdo | Entra nas métricas finais? |
+|---|---|---|
+| `*_warmup.csv` | FP/FN das janelas de aquecimento, média e DP; `Phase=warmup` | Não |
+| `*_prequential.csv` | Métricas e contadores das janelas pós-aquecimento | Sim |
+| `*_cumulative.csv` | Métricas finais calculadas sobre as previsões pós-aquecimento | É o resultado final |
+
+Não some o arquivo de aquecimento ao prequencial para reproduzir os erros
+cumulativos. Apenas a soma de FP/FN das janelas de avaliação corresponde ao
+FP/FN cumulativo, ressalvada a precisão numérica da exportação.
+
+Execuções antigas não possuem as previsões do aquecimento. Seus gráficos
+podem ser redesenhados e comparados, mas esse trecho permanece explicitamente
+marcado como não registrado. Para observá-lo é necessário executar novamente
+os modelos com o código atualizado, preservando os resultados históricos.
+O tempo de execução das novas rodadas também inclui as previsões diagnósticas
+adicionais; comparações de tempo com a implementação antiga exigem essa ressalva.
 
 ## 22. Repetições e sementes
 

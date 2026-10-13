@@ -308,6 +308,123 @@ class Plots:
         plt.savefig(os.path.join(output_dir, f"{algo_name}_{title}_FP_FN.png"), bbox_inches='tight')
         plt.close(fig)
 
+    @staticmethod
+    def _pad_count_axis(axis):
+        """Leave visible space below zero without changing any counts."""
+        upper = max(float(axis.get_ylim()[1]), 1.0)
+        axis.set_ylim(-max(0.15, upper * 0.06), upper)
+
+    @staticmethod
+    def _draw_count_windows(axis, data, metric, color, label, *, warmup=False,
+                            std_label=None):
+        """Draw an aggregate on its actual interval, including partial windows."""
+        source = data.get("warmup", {}) if warmup else data
+        ends = np.asarray(source.get("instances", []), dtype=float)
+        if not ends.size:
+            return
+        first = 0 if warmup else int(data.get("initial_training_instances", 0))
+        sizes = np.asarray(source.get("window_sizes", np.diff(np.r_[first - 1, ends])), dtype=float)
+        means = np.asarray(source[f"{metric}_mean"], dtype=float)
+        stds = np.asarray(source.get(f"{metric}_std", np.zeros_like(means)), dtype=float)
+        if any(a.shape != ends.shape for a in (sizes, means, stds)):
+            raise ValueError("Window boundaries and count series must have matching lengths")
+        starts = ends - sizes + 1
+        if (not all(np.isfinite(a).all() for a in (ends, sizes, means, stds))
+                or (sizes <= 0).any() or (means < 0).any() or (stds < 0).any()
+                or starts[0] != first or not np.array_equal(starts[1:], ends[:-1] + 1)):
+            raise ValueError("Invalid or nonconsecutive count windows")
+        edges = np.r_[starts - 0.5, ends[-1] + 0.5]
+        axis.stairs(means, edges, color=color, linewidth=1.8,
+                    linestyle="--" if warmup else "-", label=label, baseline=None, zorder=4)
+        lower, upper = np.maximum(0, means - stds), means + stds
+        axis.fill_between(edges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]],
+                          step="post", color=color, alpha=0.13, label=std_label, zorder=3)
+
+    def plot_labeling_comparison(
+        self, model_name, configurations, attack_regions=None,
+        title="Comparação de FP e FN", experiment="A", scenario_name="Default_FullFeatures",
+        exec_id="N/A", output_dir="output/ClassificationLabeling", dpi=300,
+    ):
+        """Overlay A/B conditions; C shows four delays in each budget row."""
+        if not configurations:
+            raise ValueError("At least one configuration is required")
+        experiment = str(experiment).upper()
+        if experiment not in {"A", "B", "C"}:
+            raise ValueError("experiment must be A, B, or C")
+        first = configurations[0]["data"]
+        budgets = sorted({c["label_budget_percentage"] for c in configurations})
+        groups = [
+            (f"Orçamento {budget:g}%", [c for c in configurations if c["label_budget_percentage"] == budget])
+            for budget in budgets
+        ] if experiment == "C" else [("", list(configurations))]
+        rows = len(groups)
+        fig, axes = plt.subplots(rows, 2, figsize=(18, 4.1 * rows + 1.8),
+                                 sharex=True, squeeze=False)
+        varied = "label_budget_percentage" if experiment == "B" else "delay_percentage"
+        values = sorted({c[varied] for c in configurations})
+        palette = plt.get_cmap("tab10")
+        colors = {value: palette(i % 10) for i, value in enumerate(values)}
+        training = int(first["initial_training_instances"])
+        total = int(first["total_instances"])
+        warmup_recorded = bool(len(first.get("warmup", {}).get("instances", [])))
+        for row_index, (row_title, group) in enumerate(groups):
+            for metric, axis in zip(("fp", "fn"), axes[row_index]):
+                if warmup_recorded:
+                    self._draw_count_windows(axis, first, metric, "#555555", "Aquecimento", warmup=True)
+                for config in sorted(group, key=lambda c: c[varied]):
+                    data = config["data"]
+                    if (data["initial_training_instances"] != training
+                            or data["total_instances"] != total
+                            or data.get("training_label_mode") != first.get("training_label_mode")
+                            or not np.array_equal(data["instances"], first["instances"])):
+                        raise ValueError("Compared configurations must share the same stream and windows")
+                    if warmup_recorded:
+                        other = data.get("warmup", {})
+                        if (not np.array_equal(other.get("instances", []), first["warmup"]["instances"])
+                                or not np.allclose(other.get(f"{metric}_mean", []), first["warmup"][f"{metric}_mean"])
+                                or not np.allclose(other.get(f"{metric}_std", []), first["warmup"][f"{metric}_std"])):
+                            raise ValueError("Compared configurations have different warmup observations")
+                    value = config[varied]
+                    label = f"Orçamento {value:g}%" if experiment == "B" else f"Atraso {value:g}%"
+                    self._draw_count_windows(axis, data, metric, colors[value], label)
+                axis.axvspan(-0.5, training - 0.5, color="#aaaaaa", alpha=0.15, hatch="//", zorder=0)
+                axis.axvline(training - 0.5, color="#777777", linestyle="-.", linewidth=1)
+                self._add_attack_regions(axis, attack_regions, alpha=0.18,
+                                         show_legend=False, show_labels=True)
+                axis.set_title(f"{row_title + ' — ' if row_title else ''}{metric.upper()} médio por janela")
+                axis.set_ylabel("Número de erros")
+                axis.set_xlim(-0.5, max(total - 0.5, 0.5))
+                self._pad_count_axis(axis)
+                axis.grid(True, alpha=0.25, linestyle=":")
+        for axis in axes[-1]:
+            axis.set_xlabel("Índice da instância no cenário")
+        mode = first.get("training_label_mode", "multiclass")
+        mode_name = "binário" if mode == "binary" else "multiclasse"
+        warmup_note = ("Aquecimento: previsão antes da atualização, 100% de rótulos sem atraso"
+                       if warmup_recorded else "Aquecimento não registrado nesta execução histórica")
+        window = int(first.get("window_sizes", [0])[0])
+        heading = fig.suptitle(
+            f"{model_name} — {title} — Experimento {experiment}\n"
+            f"{scenario_name} | treino {mode_name} / avaliação binária | janela {window} | "
+            f"{first.get('run_count', 1)} repetições | média ± DP\n{warmup_note}", fontsize=12,
+        )
+        heading.set_in_layout(False)
+        height = fig.get_figheight()
+        handles, labels = axes[0, 0].get_legend_handles_labels()
+        legend = fig.legend(handles, labels, loc="upper center",
+                            bbox_to_anchor=(0.5, 0.99 - 0.67 / height),
+                            ncol=min(7, len(handles)), fontsize=9, frameon=False)
+        legend.set_in_layout(False)
+        fig.tight_layout(rect=(0, 0, 1, 1 - 1.05 / height))
+        safe = lambda value: re.sub(r"[^\w.-]+", "_", str(value)).strip("_") or "results"
+        directory = os.path.join(str(output_dir), "plots", "stream_comparisons", safe(mode),
+                                 safe(scenario_name), safe(title), safe(exec_id), safe(model_name))
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, f"experiment_{experiment}_FP_FN_comparison.png")
+        fig.savefig(path, dpi=dpi, bbox_inches="tight", bbox_extra_artists=(heading, legend))
+        plt.close(fig)
+        return path
+
     def plot_labeling_fp_fn(
         self,
         model_name,
@@ -322,6 +439,7 @@ class Plots:
         label_budget_percentage=100.0,
         exec_id="N/A",
         output_dir="output/ClassificationLabeling",
+        dpi=300,
     ):
         """Plot stream errors and label-flow diagnostics for one configuration."""
 
@@ -348,6 +466,11 @@ class Plots:
         delivered_std = clean(data.get("delivered_window_std", np.zeros_like(instances)))
         pending_mean = clean(data.get("pending_window_mean", np.zeros_like(instances)))
         pending_std = clean(data.get("pending_window_std", np.zeros_like(instances)))
+        label_flow_recorded = data.get("label_flow_recorded", all(
+            name in data for name in ("queried_window_mean", "delivered_window_mean", "pending_window_mean")
+        ))
+        if not label_flow_recorded:
+            queried_mean = delivered_mean = pending_mean = np.full_like(instances, np.nan)
 
         expected_size = instances.size
         series = {
@@ -378,43 +501,12 @@ class Plots:
         )
         error_color = "#1f77b4"
 
-        ax_fp.plot(
-            instances,
-            fp_mean,
-            color=error_color,
-            linewidth=2.2,
-            marker="o",
-            markersize=4,
-            label="FP médio",
-            zorder=4,
-        )
-        ax_fp.fill_between(
-            instances,
-            np.maximum(0.0, fp_mean - fp_std),
-            fp_mean + fp_std,
-            color=error_color,
-            alpha=0.18,
-            label="Desvio-padrão",
-            zorder=3,
-        )
-        ax_fn.plot(
-            instances,
-            fn_mean,
-            color=error_color,
-            linewidth=2.2,
-            marker="o",
-            markersize=4,
-            label="FN médio",
-            zorder=4,
-        )
-        ax_fn.fill_between(
-            instances,
-            np.maximum(0.0, fn_mean - fn_std),
-            fn_mean + fn_std,
-            color=error_color,
-            alpha=0.18,
-            zorder=3,
-        )
+        warmup_recorded = bool(len(data.get("warmup", {}).get("instances", [])))
+        for axis, metric in ((ax_fp, "fp"), (ax_fn, "fn")):
+            if warmup_recorded:
+                self._draw_count_windows(axis, data, metric, "#555555", "Aquecimento (diagnóstico)", warmup=True)
+            self._draw_count_windows(axis, data, metric, error_color,
+                                     f"{metric.upper()} médio após o aquecimento", std_label="Desvio-padrão")
 
         queried_color = "#2ca02c"
         delivered_color = "#ff7f0e"
@@ -488,8 +580,8 @@ class Plots:
         for axis_index, axis in enumerate(axes):
             if initial_training_end >= 0:
                 axis.axvspan(
-                    0,
-                    initial_training_end,
+                    -0.5,
+                    initial_training_end + 0.5,
                     facecolor="#9e9e9e",
                     alpha=0.16,
                     hatch="//",
@@ -499,7 +591,7 @@ class Plots:
                     zorder=0,
                 )
                 axis.axvline(
-                    initial_training_end,
+                    initial_training_end + 0.5,
                     color="#555555",
                     linewidth=1.2,
                     linestyle="-.",
@@ -525,7 +617,7 @@ class Plots:
                 show_legend=axis_index == 0,
                 show_labels=axis_index == 0,
             )
-            axis.set_ylim(bottom=0)
+            self._pad_count_axis(axis)
             axis.grid(True, alpha=0.28, linestyle=":", zorder=0)
 
         ax_fp.set_ylabel("Falsos positivos")
@@ -533,9 +625,18 @@ class Plots:
         ax_labels.set_ylabel("Rótulos por janela")
         ax_pending.set_ylabel("Rótulos pendentes", color=pending_color)
         ax_pending.tick_params(axis="y", colors=pending_color)
-        ax_pending.set_ylim(bottom=0)
+        self._pad_count_axis(ax_pending)
         ax_labels.set_xlabel("Índice da instância no cenário")
-        ax_fp.set_xlim(0, max(total_instances - 1, 1))
+        ax_fp.set_xlim(-0.5, max(total_instances - 0.5, 0.5))
+        if not warmup_recorded:
+            ax_fp.text(initial_training / 2, 0.08, "Aquecimento não registrado", fontsize=8,
+                       ha="center", transform=ax_fp.get_xaxis_transform(), color="#555555")
+        ax_labels.text(initial_training / 2, 0.35, "Aquecimento:\n100% de rótulos imediatos",
+                       fontsize=8, ha="center", transform=ax_labels.get_xaxis_transform(), color="#555555")
+        if not label_flow_recorded:
+            ax_labels.text((initial_training + total_instances) / 2, 0.5,
+                           "Contadores por janela não registrados nesta execução histórica",
+                           ha="center", transform=ax_labels.get_xaxis_transform(), fontsize=9)
 
         labeling = data.get("labeling", {})
         effective_query = labeling.get("effective_query_percentage", (0.0, 0.0))
@@ -553,7 +654,7 @@ class Plots:
             f"({delay_instances} instâncias) | orçamento {label_budget_percentage:g}% | "
             f"consulta efetiva {effective_query[0]:.2f}% ± {effective_query[1]:.2f}%\n"
             f"treino inicial {initial_training} | janela {window_size} | "
-            f"{run_count} {run_label} | consultados {queried_total[0]:.1f} ± {queried_total[1]:.1f} | "
+            f"{run_count} {run_label} | consultas pós-aquecimento {queried_total[0]:.1f} ± {queried_total[1]:.1f} | "
             f"entregues no fluxo {delivered_total[0]:.1f} ± {delivered_total[1]:.1f} | "
             f"liberados após o fim {flushed_total[0]:.1f} ± {flushed_total[1]:.1f}",
             fontsize=13,
@@ -599,6 +700,6 @@ class Plots:
             final_dir,
             f"{safe_name(configuration_slug)}_FP_FN_Labeling.png",
         )
-        fig.savefig(file_path, dpi=300, bbox_inches="tight")
+        fig.savefig(file_path, dpi=dpi, bbox_inches="tight")
         plt.close(fig)
         return file_path

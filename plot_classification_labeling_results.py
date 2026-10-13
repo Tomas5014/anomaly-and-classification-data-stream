@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
+from src.Results.Metrics import Metrics
+from src.Results.Plots import Plots
 
 MODEL_ALIASES = {
     "LB": "LeveragingBagging",
@@ -91,6 +93,9 @@ CUMULATIVE_KEY = [
 ]
 
 PREQUENTIAL_KEY = CUMULATIVE_KEY + ["Window_Index"]
+WARMUP_REQUIRED_COLUMNS = set(CUMULATIVE_KEY) - {"Training_Label_Mode"} | {
+    "Window_Index", "Window_Instances", "Instance", "FP_avg", "FP_std", "FN_avg", "FN_std",
+}
 
 DEFAULT_PREQUENTIAL_CONFIGS = ((0.0, 100.0), (1.0, 30.0), (5.0, 10.0), (10.0, 1.0))
 
@@ -147,6 +152,16 @@ def parse_args(argv: Sequence[str] | None = None):
         help="Formatos de saída.",
     )
     parser.add_argument("--dpi", type=int, default=300, help="Resolução de saída.")
+    parser.add_argument(
+        "--stream-plots", choices=("none", "individual", "comparisons", "all"), default="none",
+        help="Gera FP/FN em stream individuais, comparativos A/B/C ou ambos (PNG).",
+    )
+    parser.add_argument("--stream-only", action="store_true",
+                        help="Gera somente os gráficos solicitados em --stream-plots.")
+    parser.add_argument("--data-root", type=Path, default=Path("data/15k"),
+                        help="Cenários CSV originais, usados para localizar e nomear os ataques.")
+    parser.add_argument("--experiments", nargs="+", choices=("A", "B", "C"),
+                        default=["A", "B", "C"], help="Experimentos nos gráficos de stream.")
     parser.add_argument(
         "--include-prequential",
         action="store_true",
@@ -220,20 +235,20 @@ def _label_mode_title(label_mode: str) -> str:
 
 
 def load_results(input_dir: Path, kind: str, exec_selector: str = "latest") -> pd.DataFrame:
-    if kind not in {"cumulative", "prequential"}:
-        raise ValueError("kind must be 'cumulative' or 'prequential'")
+    if kind not in {"cumulative", "prequential", "warmup"}:
+        raise ValueError("kind must be 'cumulative', 'prequential', or 'warmup'")
 
     paths = sorted(input_dir.glob(f"*_{kind}.csv"))
     if not paths:
+        if kind == "warmup":
+            return pd.DataFrame()
         raise FileNotFoundError(
             f"Nenhum arquivo '*_{kind}.csv' encontrado em {input_dir}"
         )
 
-    required = (
-        CUMULATIVE_REQUIRED_COLUMNS
-        if kind == "cumulative"
-        else PREQUENTIAL_REQUIRED_COLUMNS
-    )
+    required = {"cumulative": CUMULATIVE_REQUIRED_COLUMNS,
+                "prequential": PREQUENTIAL_REQUIRED_COLUMNS,
+                "warmup": WARMUP_REQUIRED_COLUMNS}[kind]
     frames = []
     for path in paths:
         frame = pd.read_csv(path, sep=";")
@@ -872,6 +887,111 @@ def generate_prequential_plots(
     return records
 
 
+def stream_history(row: pd.Series, windows: pd.DataFrame, warmup: pd.DataFrame) -> dict:
+    """Rebuild one configuration without mixing executions or training modes."""
+    windows = windows.sort_values("Window_Index")
+    history = {
+        "instances": windows.Instance.to_numpy(),
+        "window_sizes": windows.Window_Instances.to_numpy(),
+        "initial_training_instances": int(row.Initial_Training_Instances),
+        "total_instances": int(row.Initial_Training_Instances + row.Evaluation_Instances),
+        "delay_instances": int(row.Delay_Instances), "run_count": int(row.Runs),
+        "training_label_mode": row.Training_Label_Mode,
+    }
+    if windows.empty or int(windows.Instance.iloc[-1]) != history["total_instances"] - 1:
+        raise ValueError("Janelas ausentes ou incompletas para a configuração selecionada")
+    for metric in ("fp", "fn"):
+        for stat, suffix in (("mean", "avg"), ("std", "std")):
+            history[f"{metric}_{stat}"] = windows[f"{metric.upper()}_{suffix}"].to_numpy()
+    flow = {"queried_window": "Queried_Window", "delivered_window": "Delivered_Window",
+            "pending_window": "Pending_At_Window_End"}
+    history["label_flow_recorded"] = all(
+        f"{column}_{stat}" in windows and windows[f"{column}_{stat}"].notna().all()
+        for column in flow.values() for stat in ("avg", "std")
+    )
+    if history["label_flow_recorded"]:
+        for name, column in flow.items():
+            for stat, suffix in (("mean", "avg"), ("std", "std")):
+                history[f"{name}_{stat}"] = windows[f"{column}_{suffix}"].to_numpy()
+    history["labeling"] = {
+        name: (float(row[f"{column}_avg"]), float(row[f"{column}_std"]))
+        for name, column in {
+            "queried_instances": "Queried", "effective_query_percentage": "Effective_Query_Percentage",
+            "delivered_during_stream": "Delivered_During_Stream", "flushed_after_stream": "Flushed_After_Stream",
+        }.items()
+    }
+    if not warmup.empty:
+        selected = warmup
+        for column in CUMULATIVE_KEY:
+            selected = selected[selected[column] == row[column]]
+        if not selected.empty:
+            selected = selected.sort_values("Window_Index")
+            if int(selected.Instance.iloc[-1]) != history["initial_training_instances"] - 1:
+                raise ValueError("Registro de aquecimento incompleto")
+            history["warmup"] = {
+                "instances": selected.Instance.to_numpy(),
+                "window_sizes": selected.Window_Instances.to_numpy(),
+                **{f"{metric}_{stat}": selected[f"{metric.upper()}_{suffix}"].to_numpy()
+                   for metric in ("fp", "fn") for stat, suffix in (("mean", "avg"), ("std", "std"))},
+            }
+    return history
+
+
+def generate_stream_plots(cumulative, prequential, warmup, data_root, output_root,
+                          kind="comparisons", experiments=("A", "B", "C"), dpi=300):
+    """Use saved counts and original attack labels; never train a learner here."""
+    records = []
+    group_columns = ["Exec_ID", "Dataset", "Scenario", "Training_Label_Mode", "Model", "Experiment"]
+    window_groups = {key: group for key, group in prequential.groupby(CUMULATIVE_KEY)}
+    warmup_groups = ({key: group for key, group in warmup.groupby(CUMULATIVE_KEY)}
+                     if not warmup.empty else {})
+    selected = cumulative[cumulative.Experiment.isin(experiments)]
+    metadata = {}
+    for group_key, group in selected.groupby(group_columns, sort=True):
+        exec_id, dataset, scenario, mode, model, experiment = group_key
+        if dataset not in metadata:
+            candidates = list(Path(data_root).rglob(f"{dataset}.csv"))
+            if len(candidates) != 1:
+                raise ValueError(f"Esperado um cenário original {dataset}.csv em {data_root}; encontrados {len(candidates)}")
+            labels = pd.read_csv(candidates[0], usecols=["Label"])["Label"].astype(str).str.strip()
+            normal = labels.str.upper().isin(["BENIGN", "NORMAL"])
+            # Preserve Processor._encode_labels order and therefore attack colors.
+            names = ["BENIGN"] + labels[~normal].drop_duplicates().tolist()
+            indices = labels.where(~normal, "BENIGN").map({name: i for i, name in enumerate(names)})
+            metadata[dataset] = (names, Metrics().extract_attack_regions(indices.to_numpy()), len(labels))
+        names, attack_regions, total = metadata[dataset]
+        plots = Plots(names)
+        configurations = []
+        for _, row in group.sort_values(["Label_Budget_Percentage", "Delay_Percentage"]).iterrows():
+            key = tuple(row[column] for column in CUMULATIVE_KEY)
+            if key not in window_groups:
+                raise ValueError(f"Sem CSV prequencial correspondente: {key}")
+            history = stream_history(row, window_groups[key], warmup_groups.get(key, pd.DataFrame()))
+            if history["total_instances"] != total:
+                raise ValueError(f"Tamanho do cenário original difere dos resultados: {dataset}")
+            config = {"delay_percentage": row.Delay_Percentage,
+                      "label_budget_percentage": row.Label_Budget_Percentage, "data": history}
+            configurations.append(config)
+            if kind in {"individual", "all"}:
+                slug = (f"experiment_{experiment}_delay_{row.Delay_Percentage:g}pct_"
+                        f"labels_{row.Label_Budget_Percentage:g}pct")
+                path = plots.plot_labeling_fp_fn(
+                    model, history, attack_regions, title=dataset, window_size=int(row.Window_Evaluation),
+                    scenario_name=scenario, configuration_slug=slug, experiment=experiment,
+                    delay_percentage=row.Delay_Percentage, label_budget_percentage=row.Label_Budget_Percentage,
+                    exec_id=exec_id, output_dir=output_root, dpi=dpi,
+                )
+                records.append(_manifest_record(Path(path), "stream_individual", dataset, scenario, exec_id, model, mode))
+        if kind in {"comparisons", "all"}:
+            path = plots.plot_labeling_comparison(
+                model, configurations, attack_regions, title=dataset, experiment=experiment,
+                scenario_name=scenario, exec_id=exec_id, output_dir=output_root, dpi=dpi,
+            )
+            records.append(_manifest_record(Path(path), f"stream_comparison_{experiment}", dataset, scenario, exec_id, model, mode))
+        print(f"  Stream: {dataset} | {model} | experimento {experiment}", flush=True)
+    return records
+
+
 def _manifest_record(
     path: Path,
     plot_type: str,
@@ -922,6 +1042,8 @@ def main(argv: Sequence[str] | None = None):
         raise ValueError("--dpi must be positive")
     if args.smooth <= 0:
         raise ValueError("--smooth must be positive")
+    if args.stream_only and args.stream_plots == "none":
+        raise ValueError("--stream-only exige --stream-plots")
 
     configs = parse_prequential_configs(args.prequential_configs)
     output_dir = args.output_dir or args.input_dir / "plots"
@@ -937,25 +1059,32 @@ def main(argv: Sequence[str] | None = None):
     )
     print_plan(
         cumulative,
-        args.scope,
+        "none" if args.stream_only else args.scope,
         args.formats,
-        args.include_prequential,
+        args.include_prequential and not args.stream_only,
     )
+    if args.stream_plots != "none":
+        stream_selection = cumulative[cumulative.Experiment.isin(args.experiments)]
+        individual = len(stream_selection) if args.stream_plots in {"individual", "all"} else 0
+        comparisons = stream_selection.groupby(
+            ["Exec_ID", "Dataset", "Scenario", "Training_Label_Mode", "Model", "Experiment"]
+        ).ngroups if args.stream_plots in {"comparisons", "all"} else 0
+        print(f"Figuras adicionais de stream (PNG): {individual + comparisons}")
     if args.dry_run:
         return {"cumulative": cumulative, "prequential": None, "paths": []}
 
     records = []
-    if args.scope in {"all", "individual"}:
+    if not args.stream_only and args.scope in {"all", "individual"}:
         records.extend(
             generate_individual_plots(cumulative, output_dir, args.formats, args.dpi)
         )
-    if args.scope in {"all", "aggregate"}:
+    if not args.stream_only and args.scope in {"all", "aggregate"}:
         records.extend(
             generate_aggregate_plots(cumulative, output_dir, args.formats, args.dpi)
         )
 
     prequential = None
-    if args.include_prequential:
+    if (args.include_prequential and not args.stream_only) or args.stream_plots != "none":
         prequential = load_results(args.input_dir, "prequential", args.exec_id)
         prequential = filter_results(
             prequential,
@@ -964,6 +1093,7 @@ def main(argv: Sequence[str] | None = None):
             scenarios=args.scenarios,
             training_label_mode=args.training_label_mode,
         )
+    if args.include_prequential and not args.stream_only:
         records.extend(
             generate_prequential_plots(
                 prequential,
@@ -974,6 +1104,14 @@ def main(argv: Sequence[str] | None = None):
                 args.dpi,
             )
         )
+
+    if args.stream_plots != "none":
+        # Match complete keys: a newer diagnostic must never supply warmup to an old run.
+        warmup = load_results(args.input_dir, "warmup", "all")
+        records.extend(generate_stream_plots(
+            cumulative, prequential, warmup, args.data_root,
+            args.output_dir or args.input_dir, args.stream_plots, args.experiments, args.dpi,
+        ))
 
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = output_dir / "manifest.csv"

@@ -104,7 +104,8 @@ class ClassificationLabelingExperimentRunner:
 
     The first benign block and the immediately following attack region are
     always used as fully supervised initial training. Short benign gaps inside
-    an attack region do not split it. Metrics start after that region.
+    an attack region do not split it. Warmup predictions are diagnostic only;
+    cumulative metrics and evaluation windows start after that region.
     """
 
     def __init__(
@@ -198,6 +199,11 @@ class ClassificationLabelingExperimentRunner:
         queried_window_values = []
         delivered_window_values = []
         pending_window_values = []
+        warmup_true = []
+        warmup_pred = []
+        warmup = {key: [] for key in (
+            "instances", "window_sizes", "fp", "fn"
+        )}
 
         initial_training_instances = 0
         evaluation_instances = 0
@@ -228,8 +234,25 @@ class ClassificationLabelingExperimentRunner:
             true_labels_multi.append(original_label)
 
             if stream_index < initial_training_end:
+                # Observe the model BEFORE the fully supervised update. Keep
+                # these predictions out of y_true/y_pred and label budgets.
+                prediction = learner.predict(instance)
+                prediction = self.normal_class_idx if prediction is None else int(prediction)
+                warmup_true.append(0 if is_normal else 1)
+                warmup_pred.append(0 if prediction == self.normal_class_idx else 1)
                 learner.train(instance)
                 initial_training_instances += 1
+                if window_evaluation is not None and (
+                    initial_training_instances % window_evaluation == 0
+                    or initial_training_instances == initial_training_end
+                ):
+                    size = initial_training_instances % window_evaluation or window_evaluation
+                    truth = np.asarray(warmup_true[-size:])
+                    predicted = np.asarray(warmup_pred[-size:])
+                    warmup["instances"].append(stream_index)
+                    warmup["fp"].append(int(np.sum((truth == 0) & (predicted == 1))))
+                    warmup["fn"].append(int(np.sum((truth == 1) & (predicted == 0))))
+                    warmup["window_sizes"].append(size)
                 continue
 
             while pending_labels and pending_labels[0][0] <= stream_index:
@@ -331,6 +354,7 @@ class ClassificationLabelingExperimentRunner:
             "queried_window": queried_window_values,
             "delivered_window": delivered_window_values,
             "pending_window": pending_window_values,
+            "warmup": warmup,
             "exec_time": execution_time,
             "total_instances": total_instances,
             "initial_training_instances": initial_training_instances,
@@ -403,6 +427,7 @@ class ClassificationLabelingExperimentRunner:
         result_cache = {}
         cumulative_rows = []
         prequential_rows = []
+        warmup_rows = []
         plot_paths = []
 
         for config in configs:
@@ -439,6 +464,10 @@ class ClassificationLabelingExperimentRunner:
                     window_evaluation,
                 )
             )
+            warmup_rows.extend(self._warmup_rows(
+                predictions_history, config, experiment_name, scenario_name,
+                exec_id, window_evaluation,
+            ))
 
             if generate_plots and window_evaluation is not None:
                 plot_paths.extend(
@@ -453,8 +482,29 @@ class ClassificationLabelingExperimentRunner:
                     )
                 )
 
+        if generate_plots and window_evaluation is not None:
+            for model_name in algorithms:
+                plots = Plots(next(iter(results_by_config.values()))[model_name]["original_target_names"])
+                for experiment in dict.fromkeys(config.experiment for config in configs):
+                    selections = [
+                        {"delay_percentage": config.delay_percentage,
+                         "label_budget_percentage": config.label_budget_percentage,
+                         "data": results_by_config[config.slug][model_name]}
+                        for config in configs if config.experiment == experiment
+                    ]
+                    first = selections[0]["data"]
+                    attack_regions = self.metrics.extract_attack_regions(
+                        first["true_labels_multi"], first["original_normal_class_idx"]
+                    )
+                    plot_paths.append(plots.plot_labeling_comparison(
+                        model_name, selections, attack_regions, title=experiment_name,
+                        experiment=experiment, scenario_name=scenario_name,
+                        exec_id=exec_id, output_dir=output_dir,
+                    ))
+
         cumulative_df = pd.DataFrame(cumulative_rows)
         prequential_df = pd.DataFrame(prequential_rows)
+        warmup_df = pd.DataFrame(warmup_rows)
         paths = {"plots": plot_paths}
 
         if save_csv:
@@ -465,12 +515,15 @@ class ClassificationLabelingExperimentRunner:
             )
             cumulative_path = os.path.join(output_dir, f"{prefix}_cumulative.csv")
             prequential_path = os.path.join(output_dir, f"{prefix}_prequential.csv")
+            warmup_path = os.path.join(output_dir, f"{prefix}_warmup.csv")
             cumulative_df.to_csv(cumulative_path, sep=";", index=False)
             prequential_df.to_csv(prequential_path, sep=";", index=False)
+            warmup_df.to_csv(warmup_path, sep=";", index=False)
             paths.update(
                 {
                     "cumulative": cumulative_path,
                     "prequential": prequential_path,
+                    "warmup": warmup_path,
                 }
             )
 
@@ -478,6 +531,7 @@ class ClassificationLabelingExperimentRunner:
             "results": results_by_config,
             "cumulative": cumulative_df,
             "prequential": prequential_df,
+            "warmup": warmup_df,
             "paths": paths,
         }
 
@@ -622,6 +676,15 @@ class ClassificationLabelingExperimentRunner:
             result[f"{output_key}_mean"] = np.mean(matrix, axis=0)
             result[f"{output_key}_std"] = np.std(matrix, axis=0)
 
+        result["warmup"] = {
+            "instances": runs[0]["warmup"]["instances"],
+            "window_sizes": runs[0]["warmup"]["window_sizes"],
+        }
+        for key in ("fp", "fn"):
+            matrix = np.asarray([run["warmup"][key] for run in runs], dtype=float)
+            result["warmup"][f"{key}_mean"] = np.mean(matrix, axis=0)
+            result["warmup"][f"{key}_std"] = np.std(matrix, axis=0)
+
         return result
 
     def _cumulative_rows(
@@ -707,6 +770,7 @@ class ClassificationLabelingExperimentRunner:
                         "Window_Evaluation": window_evaluation,
                         "Window_Index": index + 1,
                         "Window_Instances": data["window_sizes"][index],
+                        "Window_Start": instance_index - data["window_sizes"][index] + 1,
                         "Instance": instance_index,
                         "F1_avg": data["f1_mean"][index],
                         "F1_std": data["f1_std"][index],
@@ -726,6 +790,30 @@ class ClassificationLabelingExperimentRunner:
                         "Pending_At_Window_End_std": data["pending_window_std"][index],
                     }
                 )
+        return rows
+
+    def _warmup_rows(self, predictions_history, config, experiment_name,
+                     scenario_name, exec_id, window_evaluation):
+        rows = []
+        for model_name, data in predictions_history.items():
+            warmup = data["warmup"]
+            for index, end in enumerate(warmup["instances"]):
+                size = warmup["window_sizes"][index]
+                rows.append({
+                    "Exec_ID": exec_id, "Dataset": experiment_name,
+                    "Experiment": config.experiment, "Model": model_name,
+                    "Scenario": scenario_name,
+                    "Training_Label_Mode": data["training_label_mode"],
+                    "Evaluation_Label_Mode": "binary", "Phase": "warmup",
+                    "Delay_Percentage": config.delay_percentage,
+                    "Label_Budget_Percentage": config.label_budget_percentage,
+                    "Initial_Training_Instances": data["initial_training_instances"],
+                    "Window_Evaluation": window_evaluation, "Window_Index": index + 1,
+                    "Window_Start": end - size + 1, "Window_Instances": size,
+                    "Instance": end, "Runs": data["run_count"],
+                    "FP_avg": warmup["fp_mean"][index], "FP_std": warmup["fp_std"][index],
+                    "FN_avg": warmup["fn_mean"][index], "FN_std": warmup["fn_std"][index],
+                })
         return rows
 
     def _generate_plots(

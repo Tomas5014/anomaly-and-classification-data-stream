@@ -127,7 +127,8 @@ def parse_args():
         action="store_true",
         help=(
             "Gera, durante o experimento, gráficos detalhados de FP/FN, "
-            "regiões de ataque e dinâmica dos rótulos por janela."
+            "regiões de ataque, aquecimento, dinâmica dos rótulos por janela "
+            "e comparativos A/B/C por modelo e cenário."
         ),
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -278,6 +279,7 @@ def main():
             print(f"  Features: {len(features)}")
             print(f"  Cumulative: {suite['paths']['cumulative']}")
             print(f"  Prequential: {suite['paths']['prequential']}")
+            print(f"  Warmup diagnostics: {suite['paths']['warmup']}")
             if suite["paths"]["plots"]:
                 print(f"  Detailed plots: {len(suite['paths']['plots'])}")
                 print(f"  First plot: {suite['paths']['plots'][0]}")

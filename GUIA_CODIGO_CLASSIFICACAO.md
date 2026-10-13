@@ -18,7 +18,7 @@ ClassificationLabelingExperimentRunner
     ├── fila de rótulos atrasados
     └── agregação de métricas
     ↓
-CSVs cumulativo e prequencial + gráficos opcionais
+CSVs cumulativo, prequencial e diagnóstico de aquecimento + gráficos opcionais
 ```
 
 Arquivos envolvidos:
@@ -133,8 +133,11 @@ A fila `pending_labels` é um `deque`. Cada item guarda:
 (índice_de_entrega, instância_original)
 ```
 
-Durante o treinamento inicial, somente `learner.train(instance)` é chamado.
-Depois dele, rótulos vencidos são entregues antes da predição atual:
+Durante o treinamento inicial, `learner.predict(instance)` é chamado antes de
+`learner.train(instance)`. FP/FN são registrados em `warmup`, separadamente das
+previsões de avaliação. O rótulo permanece imediato e garantido: não há sorteio
+ou fila nessa fase. Depois dela, rótulos vencidos são entregues antes da
+predição atual:
 
 ```python
 while pending_labels and pending_labels[0][0] <= stream_index:
@@ -179,6 +182,7 @@ Principais campos retornados:
 | `training_label_mode` | protocolo do alvo aprendido: `binary` ou `multiclass` |
 | `instances` | índice final de cada janela |
 | `window_sizes` | tamanho real de cada janela |
+| `warmup` | índices finais, tamanhos e FP/FN das janelas diagnósticas iniciais; não entra nas métricas cumulativas |
 | `f1`, `precision`, `recall`, `fp`, `fn` | métricas por janela |
 | `queried_window` | rótulos consultados em cada janela |
 | `delivered_window` | rótulos entregues ao modelo em cada janela |
@@ -263,9 +267,11 @@ O retorno contém:
     "results": resultados_por_configuração,
     "cumulative": dataframe_cumulativo,
     "prequential": dataframe_prequencial,
+    "warmup": dataframe_diagnostico_aquecimento,
     "paths": {
         "cumulative": caminho_csv_cumulativo,
         "prequential": caminho_csv_prequencial,
+        "warmup": caminho_csv_aquecimento,
         "plots": caminhos_dos_graficos_detalhados,
     },
 }
@@ -277,6 +283,7 @@ O retorno contém:
 - `_append_window_metrics`: calcula métricas de uma janela;
 - `_cumulative_rows`: cria linhas do CSV cumulativo;
 - `_prequential_rows`: cria linhas do CSV prequencial;
+- `_warmup_rows`: cria as linhas diagnósticas do aquecimento, em arquivo separado;
 - `_generate_plots`: chama os gráficos existentes;
 - `_mean_std`: calcula média e desvio-padrão;
 - `_format_percentage`: cria texto seguro para percentuais;
@@ -360,10 +367,22 @@ e recall são multiplicados por 100.
 
 ### `src/Results/Plots.py`
 
-`plot_metrics` e `plot_labeling_fp_fn` são chamados somente com `--plots`. O
-segundo mantém o gráfico temporal de FP/FN e acrescenta um terceiro painel com
+Durante o experimento, `--plots` chama `plot_metrics`, `plot_labeling_fp_fn` e
+`plot_labeling_comparison`. O segundo mantém o gráfico temporal de FP/FN e acrescenta um terceiro painel com
 rótulos consultados, entregues e pendentes por janela. O título também registra
 atraso, orçamento nominal, consulta efetiva, treinamento inicial e repetições.
+
+`_draw_count_windows` posiciona cada contagem no intervalo real da janela,
+incluindo a última janela parcial de cada fase. `_pad_count_axis` acrescenta
+espaço abaixo de zero, sem alterar os dados. `plot_labeling_comparison` reúne
+as configurações de A e B em dois painéis (FP/FN); C usa uma linha de painéis
+por orçamento, com os quatro atrasos sobrepostos.
+
+O script `plot_classification_labeling_results.py` também chama os dois últimos
+métodos, sem retreinar, com `--stream-plots`. `stream_history` reconstrói cada
+configuração dos CSVs e `generate_stream_plots` recupera os ataques do cenário
+original. O aquecimento só é anexado quando existe um CSV diagnóstico da mesma
+execução e configuração; registros históricos ausentes não são estimados.
 
 ## 6. Testes
 

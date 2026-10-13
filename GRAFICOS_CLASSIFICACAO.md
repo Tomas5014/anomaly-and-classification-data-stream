@@ -104,7 +104,7 @@ figuras agregadas. Entre as colunas obrigatórias estão:
 
 ### 3.2. CSV prequencial
 
-É carregado somente quando `--include-prequential` é informado. Suas colunas
+É carregado quando `--include-prequential` ou `--stream-plots` é informado. Suas colunas
 obrigatórias incluem:
 
 - identificação e configuração experimental;
@@ -117,6 +117,14 @@ colunas adicionais alimentam o diagnóstico detalhado criado com `--plots`.
 
 O programa interrompe a execução e informa o arquivo quando alguma coluna
 obrigatória não existe.
+
+### 3.3. CSV de aquecimento
+
+Novas execuções produzem também `*_warmup.csv`, com FP/FN médio e desvio-padrão
+das janelas de treinamento inicial. Esse arquivo é carregado para os gráficos
+de stream quando disponível. Sua identificação inclui execução, dataset,
+cenário de features, modo de treino, modelo, experimento, atraso e orçamento.
+Ele nunca é usado para calcular F1 cumulativo ou agregações de avaliação.
 
 ## 4. Seleção da execução
 
@@ -329,6 +337,92 @@ nominal, consulta efetiva, tamanho do treinamento inicial, janela, número de
 execuções, total consultado, total entregue durante o fluxo e total liberado
 depois do fim. Diferentemente dos gráficos acumulados `errors_experiment_A/B`,
 esta figura mostra em qual trecho do fluxo cada erro ocorreu.
+
+Nas novas execuções, os dois primeiros painéis mostram também o aquecimento,
+desde o índice zero: linha cinza tracejada, com previsão antes do treinamento
+da própria instância. Esse trecho permanece fora dos resultados cumulativos.
+O terceiro painel informa que, durante o aquecimento, todos os rótulos são
+imediatos; suas curvas e os totais do título continuam sendo pós-aquecimento.
+
+FP/FN são desenhados em patamares que cobrem a janela inteira, inclusive as
+janelas parciais. Por exemplo, um FN da janela 3.775–3.874 ocupa esse intervalo,
+sem interpolação diagonal com a janela anterior. A região de aquecimento
+termina exatamente na fronteira entre as instâncias 3.774 e 3.775.
+
+Os eixos de contagem recebem uma margem inferior abaixo de zero, inclusive o
+eixo secundário de pendências. Esse espaço é apenas visual: não existem
+contagens negativas e as faixas de dispersão não são desenhadas abaixo de zero.
+
+### 5.8. Comparativos de stream por experimento
+
+Com `--plots`, além das figuras individuais, o executor produz três figuras
+comparativas por combinação de dataset, cenário de features e modelo:
+
+| Experimento | Organização | Curvas em cada painel |
+|---|---|---|
+| A | Dois painéis: FP e FN | Atrasos 0%, 1%, 5% e 10%; orçamento 100% |
+| B | Dois painéis: FP e FN | Orçamentos 1%, 3%, 5%, 10%, 30% e 100%; atraso zero |
+| C | Seis linhas de painéis, uma por orçamento; FP à esquerda e FN à direita | Quatro atrasos sobrepostos em cada orçamento |
+
+Em C, os 24 casos estão na mesma figura, separados em painéis para evitar
+24 linhas sobrepostas. As cores dos atrasos são consistentes entre os painéis.
+Não há média entre configurações: cada curva é a média das repetições daquela
+configuração, com sua própria faixa de desvio-padrão.
+
+As famílias de ataque e o aquecimento continuam sinalizados. Como o
+aquecimento é igual para as configurações do mesmo modelo e sementes, ele é
+desenhado uma única vez em cada painel. O código verifica essa igualdade.
+Modelos, tamanhos de ataque, categorias, modos de treino, cenários de features
+e `Exec_ID` distintos nunca são misturados em um comparativo.
+
+As figuras são salvas em:
+
+```text
+output/ClassificationLabeling/plots/stream_comparisons/
+└── <binary|multiclass>/<cenário de features>/<dataset>/<execução>/<modelo>/
+    ├── experiment_A_FP_FN_comparison.png
+    ├── experiment_B_FP_FN_comparison.png
+    └── experiment_C_FP_FN_comparison.png
+```
+
+### 5.9. Refazer os gráficos usando CSVs existentes
+
+Para gerar apenas os comparativos binários, sem treinar novamente:
+
+```bash
+.venv/bin/python plot_classification_labeling_results.py \
+  --training-label-mode binary \
+  --exec-id 20261007_130844 \
+  --stream-only \
+  --stream-plots comparisons \
+  --output-dir output/ClassificationLabeling/stream_updated \
+  --dpi 120
+```
+
+Com os 12 datasets e os quatro modelos dessa rodada, são 144 comparativos:
+`12 × 4 × 3`. Nessa pasta nova, os PNGs ficam em
+`stream_updated/plots/stream_comparisons/` e o índice em
+`stream_updated/manifest.csv`. As pastas antigas não são alteradas.
+
+Para refazer também os individuais, use `--stream-plots all`. Para selecionar
+um caso, acrescente, por exemplo, `--datasets Adaptação_1000 --models ARF`.
+`--experiments A B C` seleciona os experimentos nos gráficos de stream.
+`--data-root data/15k` aponta para os CSVs originais, necessários para recuperar
+os nomes e posições das regiões de ataque. Os gráficos de stream são PNG;
+`--formats` continua controlando apenas os outros tipos de gráfico.
+
+Por padrão, os gráficos de stream ficam em `<input-dir>/plots/stream` e
+`<input-dir>/plots/stream_comparisons`. Se `--output-dir` for informado, essas
+subpastas ficam abaixo de `<output-dir>/plots`; o manifesto fica diretamente
+em `<output-dir>`.
+
+Nos CSVs históricos, o aquecimento não foi registrado: o programa mostra essa
+limitação em vez de preencher esse trecho com zeros ou estimativas. Arquivos
+multiclasse antigos sem contadores de rotulagem por janela também recebem
+uma indicação explícita no terceiro painel. Para registrar FP/FN desde o
+início em uma nova rodada, execute `run_classification_labeling.py --plots`.
+Mesmo sem `--plots`, a nova execução salva o CSV de aquecimento, permitindo
+gerar as figuras posteriormente.
 
 ## 6. Suavização prequencial
 
